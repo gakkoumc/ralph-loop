@@ -1,9 +1,9 @@
-# Ralph Progress Log
-Started: 2024-01-07
+# Ralph 進捗ログ
+開始日: 2024-01-07
 
 ## Codebase Patterns
-- General: Keep changes small
+- 全般: 変更は小さく保つ
 
-## Key Files
+## 主要ファイル
 - README.md
 ---

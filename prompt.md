@@ -1,47 +1,47 @@
-# Ralph Agent Instructions
+# Ralph エージェント向け指示
 
-## Context
+## 前提
 
-You are running in the root of the project.
-The configuration files for this agent loop are located in the `ralph-loop/` directory.
+- あなたはプロジェクトルートで実行されています。
+- このループ設定ファイルは `ralph-loop/` 配下にあります。
 
-## Your Task
+## あなたのタスク
 
-1. Read `ralph-loop/prd.json`
-2. Read `ralph-loop/progress.txt`
-   (check Codebase Patterns first)
-3. Check you're on the correct branch (create it if it doesn't exist, checkout if it does)
-4. Pick highest priority story where `passes: false`
-5. Implement that ONE story in the CURRENT directory (`.`), NOT inside `ralph-loop/`.
-6. Run typecheck and tests (if applicable for the language)
-7. Update `AGENTS.md` files with learnings (if they exist or create one in the root if valuable)
-8. Commit: `feat: [ID] - [Title]`
-9. Update `ralph-loop/prd.json`: Set `passes: true` for the completed story
-10. Append learnings to `ralph-loop/progress.txt`
+1. `ralph-loop/prd.json` を読む
+2. `ralph-loop/progress.txt` を読む（最初に「Codebase Patterns」を確認）
+3. 正しいブランチにいることを確認（なければ作成、あれば checkout）
+4. `passes: false` の中で最優先ストーリーを1つ選ぶ
+5. その **1ストーリーのみ** を、`ralph-loop/` ではなく現在ディレクトリ（`.`）に実装する
+6. 型チェックとテストを実行（言語に応じて可能なら）
+7. 学びを `AGENTS.md` に反映（存在しない場合、価値があるならルートに作成）
+8. コミット: `feat: [ID] - [Title]`
+9. `ralph-loop/prd.json` の該当ストーリーを `passes: true` に更新
+10. 学びを `ralph-loop/progress.txt` に追記
 
-## Progress Format
+## 進捗フォーマット
 
-APPEND to `ralph-loop/progress.txt`:
+`ralph-loop/progress.txt` に以下形式で **追記**:
 
-## [Date] - [Story ID]
-- What was implemented
-- Files changed
-- **Learnings:**
-  - Patterns discovered
-  - Gotchas encountered
+## [日付] - [Story ID]
+- 実装内容
+- 変更ファイル
+- **学び:**
+  - 見つかったパターン
+  - ハマりどころ
 ---
 
 ## Codebase Patterns
 
-Add reusable patterns to the TOP of `ralph-loop/progress.txt`:
+再利用可能なパターンは `ralph-loop/progress.txt` 先頭の「Codebase Patterns」に追加:
 
 ## Codebase Patterns
 - Migrations: Use IF NOT EXISTS
 - React: useRef<Timeout | null>(null)
 
-## Stop Condition
+## 停止条件
 
-If ALL stories pass (check `ralph-loop/prd.json` first), reply with EXACTLY:
+`ralph-loop/prd.json` を確認し、すべてのストーリーが完了している場合は、**正確に以下のみ**を返してください:
+
 <promise>COMPLETE</promise>
 
-Otherwise end your turn normally after committing and updating the tracking files.
+未完了ストーリーがある場合は、コミットと追跡ファイル更新まで行って通常どおり終了してください。

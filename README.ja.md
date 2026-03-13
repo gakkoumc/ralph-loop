@@ -1,104 +1,91 @@
+# Ralph Loop（暫定運用向け）
 
-# Ralph Loop：汎用AIコーディングエージェント・ループ
+LuLOS を作るまでの一時運用でも使いやすいように、Ralph を **止めずに回し続ける** ための補助機能を入れています。
 
-このリポジトリは、特定のAIエージェントに依存しない「Ralph」自律型コーディングループのパターンを実装したものです。Claude、Codex、Gemini、あるいは Ollama / Qwen 経由のローカルモデルなど、どのAIエージェントを使用する場合でも、Ralph Loop が処理全体を統括します。
+- CLIで進捗が見える
+- AIの発話が明確に見分けられる
+- Discordに通知を送れる（任意）
+- Webパネルだけでも同等の通知ログ確認＆回答入力ができる
+- AIから質問が出ても、回答待ちで停止せず継続する
 
-> **Ralphとは何か**
-> Ralphは以下を行う bash ループです。
->
-> 1. コンテキスト用プロンプトとタスクリスト（`prd.json`）をAIエージェントに渡します。
-> 2. エージェントがストーリーを1つ選択し、実装・テスト実行・コミット・進捗更新を行います。
-> 3. すべてのストーリーが完了とマークされるまで、このループを繰り返します。
-
-## 🚀 セットアップ
-
-中核となる仕組みは `` に配置されています。
-
-0. **クローン**：このリポジトリをプロジェクトにクローンします。
-1. **バックログを定義する**
-   `prd.json` を編集し、ユーザーストーリーを記述します。
-2. **環境を設定する**
-   プロジェクト内に、エージェントが実行できるテストコマンド（例：`npm test`、`cargo test`）が用意されていることを確認します。
-3. **実行権限を付与する**
-   `chmod +x ./ralph-loop/ralph.sh`
-
-## 🏃 使い方
-
-`./ralph-loop/ralph.sh` スクリプトを実行し、第一引数として使用するエージェントのCLIコマンドを渡します。第二引数として最大反復回数を指定できます（デフォルトは10回）。このスクリプトは、エージェントが **標準入力（stdin）** 経由でプロンプトを受け取ることを前提としています。
+## 1) 使い方（基本）
 
 ```bash
-./ralph-loop/ralph.sh "<YOUR_AGENT_COMMAND>" [最大反復回数]
-```
-
-### 使用例
-
-#### Claude Code（Anthropic）
-
-```bash
-# 最大20回まで繰り返す場合
-./ralph-loop/ralph.sh "claude --dangerously-skip-permissions" 20
-```
-
-#### Codex CLI
-
-OpenAI の自律型エージェントCLIです。
-
-```bash
-# --full-auto は確認プロンプトを省略します（ヘッドレス実行に必須）
+chmod +x ./ralph-loop/ralph.sh
 ./ralph-loop/ralph.sh "codex exec --full-auto" 20
 ```
 
-#### Gemini CLI
+## 2) 進捗の見え方（CLI）
 
-Google の生成AIエージェントCLIです。
+- `📋 ストーリー進捗`: `prd.json` から完了/残り/次ストーリーを表示
+- `📝 最新メモ`: `progress.txt` の末尾を表示
+- AI出力は行頭に `🤖 AI> ` を付与（`AI_OUTPUT_PREFIX` で変更可能）
 
-```bash
-# --yolo は自律的なアクション実行を有効にします
-./ralph-loop/ralph.sh "gemini --yolo" 20
-```
+## 3) Discord通知（任意）
 
-#### Qwen Code
+`DISCORD_WEBHOOK_URL` を設定すると通知します。未設定でも `events.log` に同じ通知内容を保存し、Webパネルで確認できます。
 
-Alibaba の Qwen エージェントCLIです。
-※ 自律実行のために「YOLOモード」の設定が必要です。
+- Ralph開始
+- AIの質問検知（`<question> ... </question>`）
+- Ralph完了 / 最大反復到達
 
-```bash
-# 1. .qwen/settings.json を更新し、完全自律モードを許可します
-#    { "permissions": { "defaultMode": "yolo" } }
-# 2. Ralph を実行します（qwen が stdin を受け取る前提）
-./ralph-loop/ralph.sh "qwen" 20
-```
-
-## 📁 ファイル構成
-
-* `ralph-loop/ralph.sh`：メインのループスクリプト
-* `prd.json`：プロダクト要件／バックログ
-* `progress.txt`：永続的なメモリおよび学習内容のログ
-* `prompt.md`：各ループで毎回エージェントに渡されるシステムプロンプト
-
-## 🧠 メモリとコンテキスト管理
-
-Ralph は以下を通じて状態と学習内容を保持します。
-
-1. **Git履歴**：エージェントが作成したコミット
-2. **`progress.txt`**：実施内容および発見された知見（パターンや注意点）の記録
-3. **`prd.json`**：各ストーリーの成功／失敗状態の管理
-
-## 特定エージェント向けのカスタマイズ
-
-エージェントが stdin ではなく引数としてプロンプトを受け取る必要がある場合は、`ralph-loop/ralph.sh` を直接修正するか、小さなラッパースクリプトを作成します。
-
-**ラッパー例（agent-wrapper.sh）：**
+※ 上記はDiscord未使用時でも `events.log` へ記録されます。
 
 ```bash
-#!/bin/bash
-# stdin を変数に読み込む
-PROMPT=$(cat)
-# explicit-agent --prompt "$PROMPT"
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." \
+./ralph-loop/ralph.sh "codex exec --full-auto" 20
 ```
 
-その後、以下のように実行します。
+## 4) Webパネル（更新ボタン付き）
 
 ```bash
-./ralph-loop/ralph.sh "./agent-wrapper.sh"
+python3 ./ralph-loop/dashboard.py
+# -> http://localhost:8787
 ```
+
+パネルでできること:
+- 現在の `status.json` 表示
+- `progress.txt` / `questions.log` / `events.log` の末尾表示
+- 「更新」ボタンで即時更新
+- 回答を入力して `answers.txt` に追記（次反復のプロンプト末尾に自動注入）
+
+## 5) 質問が来ても止まらない運用
+
+AIが `<question>...</question>` を出した場合:
+1. CLIに質問を表示
+2. Discordへ通知
+3. `questions.log` に記録
+4. ただし **ループは停止せず続行**
+
+人間が `answers.txt`（またはWebパネル）で回答すると、次回以降のプロンプト末尾に以下形式で自動追記されます。
+
+- `先ほどの質問の回答が届きました。以下を踏まえて作業を続けてください。`
+
+## 6) 主な環境変数
+
+```bash
+MAX_ITERATIONS=20 \
+SLEEP_SECONDS=1 \
+SHOW_PROGRESS_LINES=8 \
+AI_OUTPUT_PREFIX="🤖 AI> " \
+STATUS_FILE="status.json" \
+ANSWER_FILE="answers.txt" \
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." \
+./ralph-loop/ralph.sh "codex exec --full-auto"
+```
+
+- `MAX_ITERATIONS`（既定: `10`）
+- `SLEEP_SECONDS`（既定: `2`）
+- `SHOW_PROGRESS_LINES`（既定: `5`）
+- `AI_OUTPUT_PREFIX`（既定: `🤖 AI> `）
+- `DISCORD_WEBHOOK_URL`（任意）
+- `STATUS_FILE`（既定: `status.json`）
+- `ANSWER_FILE`（既定: `answers.txt`）
+
+## 7) 追加ファイル
+
+- `status.json`: 現在状態（パネル/監視用）
+- `questions.log`: AI質問ログ
+- `events.log`: 通知イベントログ（Discordなし運用の主通知面）
+- `answers.txt`: 人間回答ログ
+- `.answers.offset`: どこまで回答を注入済みかの内部管理

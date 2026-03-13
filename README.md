@@ -1,86 +1,44 @@
-# Ralph Loop: Universal AI Coding Agent Loop
+# Ralph Loop（暫定運用向け）
 
-[日本語README](./README.ja.md)
+このリポジトリは、LuLOS を作るまでの一時運用でも使いやすいように、Ralph を **止めずに回し続ける** ための機能をまとめています。
 
-This repository implements the "Ralph" autonomous coding loop pattern, designed to be agnostic of the specific AI agent being used. Whether you use Claude, Codex, Gemini, or local models via Ollama/Qwen, Ralph Loop orchestrates the process.
+- CLIで進捗が見える
+- AIの発話を明確に見分けられる
+- Discord通知（任意）
+- Webパネルだけでも同等の監視・回答入力ができる
+- AIから質問が出ても、回答待ちで停止せず継続する
 
-> **What is Ralph?**
-> Ralph is a bash loop that:
-> 1. Pipes a context prompt and task list (`prd.json`) into your AI agent.
-> 2. The agent picks a story, implements it, runs tests, commits, and updates its progress.
-> 3. The loop repeats until all stories are marked complete.
-
-## 🚀 Setup
-
-The core machinery is located in ``.
-
-1. **Define your backlog**: Edit `prd.json` with your user stories.
-2. **Configure your environment**: Ensure your project has test commands (e.g., `npm test`, `cargo test`) ready for the agent to use.
-3. **Make executable**: `chmod +x ./ralph-loop/ralph.sh`
-
-## 🏃 Usage
-
-Run the `./ralph-loop/ralph.sh` script and pass your agent's CLI command as the first argument. You can optionally specify the maximum number of iterations as the second argument (default is 10). The script assumes your agent accepts the prompt via **Standard Input (stdin)**.
+## 1) 使い方（基本）
 
 ```bash
-./ralph-loop/ralph.sh "<YOUR_AGENT_COMMAND>" [MAX_ITERATIONS]
-```
-
-### Examples
-
-#### Claude Code (Anthropic)
-```bash
-# Run up to 20 iterations
-./ralph-loop/ralph.sh "claude --dangerously-skip-permissions" 20
-```
-
-#### Codex CLI
-OpenAI's autonomous agent CLI.
-```bash
-# --full-auto bypasses confirmation prompts (required for headless loop)
+chmod +x ./ralph-loop/ralph.sh
 ./ralph-loop/ralph.sh "codex exec --full-auto" 20
 ```
 
-#### Gemini CLI
-Google's GenAI agent CLI.
+## 2) Webパネル
+
 ```bash
-# --yolo enables autonomous action execution
-./ralph-loop/ralph.sh "gemini --yolo" 20
+python3 ./ralph-loop/dashboard.py
+# http://localhost:8787
 ```
 
-#### Qwen Code
-Alibaba's Qwen agent CLI.
-*Requires configuring "YOLO Mode" for autonomous execution.*
+Webパネルでは、現在状態やログ末尾の確認、`answers.txt` への回答追記ができます。
+
+## 3) Discord通知（任意）
+
 ```bash
-# 1. Update .qwen/settings.json to allow fully autonomous mode:
-#    { "permissions": { "defaultMode": "yolo" } }
-# 2. Run Ralph (assuming qwen accepts stdin)
-./ralph-loop/ralph.sh "qwen" 20
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." \
+./ralph-loop/ralph.sh "codex exec --full-auto" 20
 ```
 
-## 📁 File Structure
+Discordを使わない場合でも、同等の通知は `events.log` に保存され、Webパネルから確認できます。
 
-- `ralph-loop/ralph.sh`: The main loop script.
-- `prd.json`: Your product requirements/backlog.
-- `progress.txt`: Persistent memory and learnings log.
-- `prompt.md`: The system prompt fed to the agent on every iteration.
+## 4) ループを止めない質問対応
 
-## 🧠 Memory & Context
+AIが以下を出力した場合:
 
-Ralph persists memory through:
-1. **Git History**: Commits made by the agent.
-2. **`progress.txt`**: A log of what was done and "learnings" (patterns/gotchas) discovered.
-3. **`prd.json`**: Tracking which stories are passed/failed.
-
-## customizing for specific agents
-
-If your agent requires the prompt as an argument instead of stdin, you can modify `ralph-loop/ralph.sh` or create a small wrapper script.
-
-**Wrapper Example (agent-wrapper.sh):**
-```bash
-#!/bin/bash
-# Read stdin to a variable
-PROMPT=$(cat)
-# explicit-agent --prompt "$PROMPT"
+```text
+<question>...</question>
 ```
-Then run: `./ralph-loop/ralph.sh "./agent-wrapper.sh"`
+
+Ralph は質問をログ・通知しつつ処理を継続します。`answers.txt` に追記した新しい回答は、次回プロンプトへ自動で注入されます。
