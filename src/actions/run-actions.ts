@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
+import { buildOrchestrationSnapshot } from '../orchestration/model.ts';
 import type { AppConfig } from '../config.ts';
 import { parseStructuredMarkers } from '../parser/markers.ts';
 import { composePromptWithInjections } from '../prompt/composer.ts';
@@ -12,12 +13,110 @@ import type {
   MarkerMatch,
   PromptInjectionItem,
   QuestionRecord,
+  RuntimeSettings,
   RunStatus,
+  RunMode,
+  StoredTaskStatus,
+  TaskRecord,
 } from '../shared/types.ts';
 import { FileStateStore } from '../state/store.ts';
+import { loadTaskSeeds, makeSyntheticTask } from '../tasks/catalog.ts';
 
 export interface ActionActor {
   source: string;
+}
+
+export interface RuntimeSettingsInput {
+  taskName?: string;
+  agentCommand?: string;
+  promptFile?: string;
+  promptBody?: string;
+  maxIterations?: number;
+  idleSeconds?: number;
+  mode?: RunMode;
+}
+
+interface ParsedTaskMarker {
+  id: string;
+  title: string;
+  status: StoredTaskStatus;
+}
+
+function normalizeTaskStatus(value?: string): StoredTaskStatus {
+  if (value === 'completed' || value === 'done') {
+    return 'completed';
+  }
+
+  if (value === 'blocked') {
+    return 'blocked';
+  }
+
+  return 'pending';
+}
+
+function parseTaskMarker(content: string): ParsedTaskMarker | null {
+  const parts = content
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    return {
+      id: parts[0],
+      title: parts[0],
+      status: 'pending',
+    };
+  }
+
+  if (parts.length === 2) {
+    return {
+      id: parts[0],
+      title: parts[1],
+      status: 'pending',
+    };
+  }
+
+  return {
+    id: parts[0],
+    status: normalizeTaskStatus(parts[1].toLowerCase()),
+    title: parts.slice(2).join(' | '),
+  };
+}
+
+function renderOrchestrationSummary(
+  taskBoard: DashboardData['taskBoard'],
+  maxIntegration: number,
+): string {
+  const unfinished = taskBoard.filter((task) => task.displayStatus !== 'completed');
+  const active = unfinished.filter((task) => task.displayStatus === 'active');
+  const queued = unfinished.filter((task) => task.displayStatus === 'queued');
+
+  const sections = [
+    '現在の orchestration snapshot:',
+    `- MaxIntegration: ${maxIntegration}`,
+    `- Active Tasks: ${active.length}`,
+    `- Queued Tasks: ${queued.length}`,
+  ];
+
+  if (active.length > 0) {
+    sections.push('- In-flight:');
+    for (const task of active.slice(0, maxIntegration)) {
+      sections.push(`  - ${task.id}: ${task.title}`);
+    }
+  }
+
+  if (queued.length > 0) {
+    sections.push('- Next Up:');
+    for (const task of queued.slice(0, maxIntegration)) {
+      sections.push(`  - ${task.id}: ${task.title}`);
+    }
+  }
+
+  return sections.join('\n');
 }
 
 export class RunActions {
@@ -33,26 +132,189 @@ export class RunActions {
     await this.importLocalInbox();
 
     const status = this.refreshStatusCounters();
+    const settings = this.getRuntimeSettings();
     const questions = this.store.readQuestions();
     const answers = this.store.readAnswers();
+    const pendingQuestions = questions.filter((question) => question.status === 'pending');
+    const answeredQuestions = questions
+      .filter((question) => question.status === 'answered')
+      .map((question) => ({
+        ...question,
+        answer: answers.find((answer) => answer.id === question.answerId),
+      }));
+    const blockers = this.store.readBlockers().slice(-20).reverse();
+    const promptInjectionQueue = this.listPromptInjectionQueue();
+    const orchestration = buildOrchestrationSnapshot({
+      status,
+      tasks: this.synchronizeTaskCatalog(),
+      pendingQuestions,
+      blockers,
+      promptInjectionQueue,
+    });
 
     return {
       status,
-      pendingQuestions: questions.filter((question) => question.status === 'pending'),
-      answeredQuestions: questions
-        .filter((question) => question.status === 'answered')
-        .map((question) => ({
-          ...question,
-          answer: answers.find((answer) => answer.id === question.answerId),
-        })),
-      blockers: this.store.readBlockers().slice(-20).reverse(),
-      promptInjectionQueue: this.listPromptInjectionQueue(),
+      settings,
+      pendingQuestions,
+      answeredQuestions,
+      blockers,
+      promptInjectionQueue,
       recentEvents: (await this.store.listRecentEvents(40)).reverse(),
       agentLogTail: (await this.store.readAgentOutputTail(80)).filter(Boolean),
+      taskBoard: orchestration.taskBoard,
+      agentLanes: orchestration.agentLanes,
+      thinkingFrames: orchestration.thinkingFrames,
     };
   }
 
   getStatus(): RunStatus {
+    return this.refreshStatusCounters();
+  }
+
+  getRuntimeSettings(): RuntimeSettings {
+    const settings = this.store.readSettings();
+    this.applyRuntimeSettings(settings);
+    return settings;
+  }
+
+  async updateRuntimeSettings(
+    input: RuntimeSettingsInput,
+    actor: ActionActor,
+  ): Promise<RuntimeSettings> {
+    const current = this.store.readSettings();
+    const nextTaskName = input.taskName?.trim();
+    const nextAgentCommand = input.agentCommand?.trim();
+    const nextPromptFile = input.promptFile?.trim();
+    const next: RuntimeSettings = {
+      ...current,
+      taskName: nextTaskName ? nextTaskName : current.taskName,
+      agentCommand: nextAgentCommand ? nextAgentCommand : current.agentCommand,
+      promptFile: nextPromptFile ? nextPromptFile : current.promptFile,
+      promptBody: input.promptBody ?? current.promptBody,
+      maxIterations:
+        input.maxIterations && input.maxIterations > 0 ? input.maxIterations : current.maxIterations,
+      idleSeconds:
+        input.idleSeconds && input.idleSeconds > 0 ? input.idleSeconds : current.idleSeconds,
+      mode: input.mode ?? current.mode,
+      updatedAt: nowIso(),
+      updatedBy: actor.source,
+    };
+
+    this.store.writeSettings(next);
+    this.applyRuntimeSettings(next);
+
+    const status = this.store.readStatus();
+    status.task = next.taskName;
+    status.maxIterations = next.maxIterations;
+    status.agentCommand = next.agentCommand;
+    status.mode = next.mode;
+    status.promptFile = next.promptBody.trim() ? '[inline prompt override]' : next.promptFile;
+    status.updatedAt = nowIso();
+    this.store.writeStatus(status);
+
+    await this.appendEvent('settings.updated', 'info', `${actor.source} が runtime settings を更新しました`, {
+      source: actor.source,
+      maxIterations: next.maxIterations,
+      mode: next.mode,
+    });
+
+    this.refreshStatusCounters();
+    return next;
+  }
+
+  async requestRunStart(
+    actor: ActionActor,
+  ): Promise<{ started: boolean; status: RunStatus; message: string }> {
+    const current = this.store.readStatus();
+    if (current.phase === 'queued') {
+      return {
+        started: false,
+        status: this.refreshStatusCounters(),
+        message: 'run is already queued',
+      };
+    }
+
+    if (['starting', 'running', 'pause_requested', 'paused'].includes(current.lifecycle)) {
+      return {
+        started: false,
+        status: this.refreshStatusCounters(),
+        message: 'run is already active',
+      };
+    }
+
+    const settings = this.getRuntimeSettings();
+    const settingsError = this.validateRuntimeSettings(settings);
+    if (settingsError) {
+      await this.appendEvent('run.request.rejected', 'warning', settingsError, { source: actor.source });
+      return {
+        started: false,
+        status: this.refreshStatusCounters(),
+        message: settingsError,
+      };
+    }
+
+    this.store.clearRunArtifacts();
+
+    const status = this.store.readStatus();
+    status.runId = '';
+    status.task = settings.taskName;
+    status.phase = 'queued';
+    status.lifecycle = 'idle';
+    status.control = 'running';
+    status.iteration = 0;
+    status.maxIterations = settings.maxIterations;
+    status.currentStatusText = `${actor.source} が start を要求しました`;
+    status.lastQuestionId = undefined;
+    status.lastQuestionText = undefined;
+    status.lastBlockerId = undefined;
+    status.lastBlockerText = undefined;
+    status.pendingQuestionCount = 0;
+    status.answeredQuestionCount = 0;
+    status.pendingInjectionCount = 0;
+    status.blockerCount = 0;
+    status.activeTaskCount = 0;
+    status.completedTaskCount = 0;
+    status.queuedTaskCount = 0;
+    status.startedAt = undefined;
+    status.finishedAt = undefined;
+    status.lastPromptPreview = undefined;
+    status.lastError = undefined;
+    status.updatedAt = nowIso();
+    status.agentCommand = settings.agentCommand;
+    status.mode = settings.mode;
+    status.promptFile = settings.promptBody.trim() ? '[inline prompt override]' : settings.promptFile;
+    status.thinkingText = 'Ralph is standing by and ready to take the first turn.';
+    this.store.writeStatus(status);
+
+    this.synchronizeTaskCatalog();
+    await this.appendEvent('run.requested', 'info', `${actor.source} が run 開始を要求しました`, {
+      source: actor.source,
+    });
+
+    return {
+      started: true,
+      status: this.refreshStatusCounters(),
+      message: 'run start queued',
+    };
+  }
+
+  async recoverInterruptedRun(actor: ActionActor = { source: 'system' }): Promise<RunStatus | null> {
+    const status = this.store.readStatus();
+    if (!['starting', 'running', 'pause_requested', 'paused'].includes(status.lifecycle)) {
+      return null;
+    }
+
+    status.lifecycle = 'failed';
+    status.phase = 'interrupted';
+    status.control = 'running';
+    status.currentStatusText = '前回の run は service 再起動で中断されました';
+    status.thinkingText = 'Recovered from a stale active state. Ralph is ready for the next queued run.';
+    status.finishedAt = nowIso();
+    status.updatedAt = status.finishedAt;
+    this.store.writeStatus(status);
+    await this.appendEvent('run.recovered', 'warning', `${actor.source} が stale run state を回復しました`, {
+      source: actor.source,
+    });
     return this.refreshStatusCounters();
   }
 
@@ -61,6 +323,7 @@ export class RunActions {
     status.control = 'paused';
     status.lifecycle = status.lifecycle === 'running' ? 'pause_requested' : 'paused';
     status.phase = 'paused';
+    status.thinkingText = 'Run is paused. Ralph keeps the orchestration state intact.';
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     await this.appendEvent('run.pause', 'warning', `${actor.source} が pause を要求しました`);
@@ -72,6 +335,7 @@ export class RunActions {
     status.control = 'running';
     status.lifecycle = status.lifecycle === 'paused' ? 'running' : status.lifecycle;
     status.phase = 'running';
+    status.thinkingText = 'Ralph resumed. Active lanes are warming up again.';
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     await this.appendEvent('run.resume', 'info', `${actor.source} が resume しました`);
@@ -83,6 +347,7 @@ export class RunActions {
     status.control = 'abort_requested';
     status.lifecycle = 'aborted';
     status.phase = 'aborted';
+    status.thinkingText = 'Abort requested. Ralph is collapsing the current turn safely.';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -193,12 +458,25 @@ export class RunActions {
   async preparePromptForNextTurn(): Promise<string> {
     await this.importLocalInbox();
 
-    const basePrompt = readFileSync(this.config.promptFile, 'utf8');
+    const settings = this.getRuntimeSettings();
+    const basePrompt = settings.promptBody.trim()
+      ? settings.promptBody
+      : readFileSync(settings.promptFile, 'utf8');
     const answers = this.store.readAnswers();
     const notes = this.store.readManualNotes();
     const queuedAnswers = answers.filter((answer) => !answer.injectedAt);
     const queuedNotes = notes.filter((note) => !note.injectedAt);
-    const result = composePromptWithInjections(basePrompt, queuedAnswers, queuedNotes);
+    const dashboard = await this.getDashboardData();
+    const orchestrationSection = renderOrchestrationSummary(
+      dashboard.taskBoard,
+      dashboard.status.maxIntegration,
+    );
+    const result = composePromptWithInjections(
+      basePrompt,
+      queuedAnswers,
+      queuedNotes,
+      [orchestrationSection],
+    );
 
     if (result.injectedAnswerIds.length > 0) {
       const injectedAt = nowIso();
@@ -245,6 +523,14 @@ export class RunActions {
         await this.recordBlocker(marker.content);
       }
 
+      if (marker.kind === 'THINKING') {
+        await this.recordThinking(marker.content);
+      }
+
+      if (marker.kind === 'TASK') {
+        await this.recordTaskSignal(marker.content);
+      }
+
       if (marker.kind === 'DONE') {
         done = true;
         await this.markDone(marker.content || 'DONE marker received');
@@ -261,6 +547,7 @@ export class RunActions {
   async recordAgentStatus(message: string): Promise<void> {
     const status = this.store.readStatus();
     status.currentStatusText = message;
+    status.thinkingText = message;
     status.phase = 'running';
     if (status.control === 'running') {
       status.lifecycle = 'running';
@@ -268,6 +555,17 @@ export class RunActions {
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     await this.appendEvent('agent.status', 'info', message);
+  }
+
+  async recordThinking(message: string): Promise<void> {
+    const status = this.store.readStatus();
+    status.thinkingText = message;
+    if (!status.currentStatusText) {
+      status.currentStatusText = message;
+    }
+    status.updatedAt = nowIso();
+    this.store.writeStatus(status);
+    await this.appendEvent('agent.thinking', 'info', message);
   }
 
   async recordQuestion(questionText: string, source: string = 'agent'): Promise<QuestionRecord> {
@@ -336,12 +634,54 @@ export class RunActions {
     this.refreshStatusCounters();
   }
 
+  async recordTaskSignal(content: string, source: string = 'agent'): Promise<void> {
+    const parsed = parseTaskMarker(content);
+    if (!parsed) {
+      await this.appendEvent('task.invalid', 'warning', `task marker を解釈できませんでした: ${content}`);
+      return;
+    }
+
+    const tasks = this.synchronizeTaskCatalog();
+    const timestamp = nowIso();
+    const existing = tasks.find((task) => task.id === parsed.id);
+
+    if (existing) {
+      existing.title = parsed.title || existing.title;
+      existing.summary = parsed.title || existing.summary;
+      existing.status = parsed.status;
+      existing.updatedAt = timestamp;
+      existing.source = source;
+    } else {
+      tasks.push({
+        id: parsed.id,
+        title: parsed.title,
+        summary: parsed.title,
+        priority: 'medium',
+        status: parsed.status,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        source,
+        acceptanceCriteria: [],
+      });
+    }
+
+    this.store.writeTasks(tasks);
+    await this.appendEvent(
+      'task.updated',
+      'info',
+      `${parsed.id}: ${parsed.status} / ${parsed.title}`,
+      { taskId: parsed.id, taskStatus: parsed.status },
+    );
+    this.refreshStatusCounters();
+  }
+
   async markDone(message: string): Promise<void> {
     const status = this.store.readStatus();
     status.lifecycle = 'completed';
     status.control = 'running';
     status.phase = 'completed';
     status.currentStatusText = message;
+    status.thinkingText = message;
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -349,19 +689,23 @@ export class RunActions {
   }
 
   async markRunStarted(): Promise<RunStatus> {
+    const settings = this.getRuntimeSettings();
     const status = this.store.readStatus();
     status.runId = createRunId();
-    status.task = this.config.taskName;
+    status.task = settings.taskName;
     status.phase = 'starting';
     status.lifecycle = 'starting';
     status.control = 'running';
-    status.startedAt = status.startedAt ?? nowIso();
+    status.startedAt = nowIso();
+    status.finishedAt = undefined;
     status.updatedAt = nowIso();
-    status.agentCommand = this.config.agentCommand;
-    status.mode = this.config.mode;
-    status.promptFile = this.config.promptFile;
-    status.maxIterations = this.config.maxIterations;
+    status.agentCommand = settings.agentCommand;
+    status.mode = settings.mode;
+    status.promptFile = settings.promptBody.trim() ? '[inline prompt override]' : settings.promptFile;
+    status.maxIterations = settings.maxIterations;
+    status.thinkingText = 'Ralph is mapping the task graph and assigning worker lanes.';
     this.store.writeStatus(status);
+    this.synchronizeTaskCatalog();
     await this.appendEvent('run.started', 'info', 'supervisor を開始しました', {
       mode: this.config.mode,
     });
@@ -373,6 +717,7 @@ export class RunActions {
     status.iteration = iteration;
     status.phase = status.control === 'paused' ? 'paused' : 'running';
     status.lifecycle = status.control === 'paused' ? 'paused' : 'running';
+    status.thinkingText = `Iteration ${iteration} is in flight. Ralph is rotating active lanes.`;
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     return this.refreshStatusCounters();
@@ -383,6 +728,7 @@ export class RunActions {
     status.lifecycle = 'failed';
     status.phase = 'max_iterations_reached';
     status.currentStatusText = '最大反復回数に到達しました';
+    status.thinkingText = 'Iteration ceiling reached before the task graph fully converged.';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -394,6 +740,7 @@ export class RunActions {
     status.lifecycle = status.control === 'abort_requested' ? 'aborted' : 'failed';
     status.phase = status.lifecycle;
     status.lastError = error instanceof Error ? error.stack ?? error.message : String(error);
+    status.thinkingText = 'Ralph hit a runtime fault while coordinating the run.';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -444,17 +791,113 @@ export class RunActions {
     }
   }
 
+  private synchronizeTaskCatalog(): TaskRecord[] {
+    const timestamp = nowIso();
+    const existingTasks = this.store.readTasks();
+    const seeds = loadTaskSeeds(this.config);
+
+    if (seeds.length === 0) {
+      if (existingTasks.length > 0) {
+        return existingTasks;
+      }
+
+      const synthetic = makeSyntheticTask(this.store.readStatus().task || this.config.taskName, timestamp);
+      this.store.writeTasks([synthetic]);
+      return [synthetic];
+    }
+
+    const existingById = new Map(existingTasks.map((task) => [task.id, task]));
+    const seedIds = new Set(seeds.map((seed) => seed.id));
+
+    const merged: TaskRecord[] = seeds.map((seed) => {
+      const existing = existingById.get(seed.id);
+      const nextStatus =
+        seed.status === 'completed'
+          ? 'completed'
+          : existing?.status === 'blocked'
+            ? 'blocked'
+            : 'pending';
+
+      return {
+        id: seed.id,
+        title: seed.title,
+        summary: seed.summary,
+        priority: seed.priority,
+        status: nextStatus,
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt:
+          existing &&
+          existing.title === seed.title &&
+          existing.summary === seed.summary &&
+          existing.notes === seed.notes &&
+          existing.status === nextStatus
+            ? existing.updatedAt
+            : timestamp,
+        source: seed.source,
+        acceptanceCriteria: seed.acceptanceCriteria,
+        notes: seed.notes ?? existing?.notes,
+      };
+    });
+
+    const manualTasks = existingTasks.filter((task) => !seedIds.has(task.id));
+    const catalog = [...merged, ...manualTasks];
+    this.store.writeTasks(catalog);
+    return catalog;
+  }
+
+  private applyRuntimeSettings(settings: RuntimeSettings): void {
+    this.config.taskName = settings.taskName;
+    this.config.agentCommand = settings.agentCommand;
+    this.config.promptFile = settings.promptFile;
+    this.config.maxIterations = settings.maxIterations;
+    this.config.idleSeconds = settings.idleSeconds;
+    this.config.mode = settings.mode;
+  }
+
+  private validateRuntimeSettings(settings: RuntimeSettings): string | null {
+    if (!settings.taskName.trim()) {
+      return 'taskName is required before starting a run';
+    }
+
+    if (settings.mode === 'command' && !settings.agentCommand.trim()) {
+      return 'agentCommand is required in command mode';
+    }
+
+    if (!settings.promptBody.trim() && !settings.promptFile.trim()) {
+      return 'promptBody or promptFile is required before starting a run';
+    }
+
+    if (!settings.promptBody.trim() && !existsSync(settings.promptFile)) {
+      return `promptFile not found: ${settings.promptFile}`;
+    }
+
+    return null;
+  }
+
   private refreshStatusCounters(): RunStatus {
     const status = this.store.readStatus();
     const questions = this.store.readQuestions();
+    const pendingQuestions = questions.filter((question) => question.status === 'pending');
     const blockers = this.store.readBlockers();
-    const queuedAnswers = this.store.readAnswers().filter((answer) => !answer.injectedAt).length;
-    const queuedNotes = this.store.readManualNotes().filter((note) => !note.injectedAt).length;
+    const promptInjectionQueue = this.listPromptInjectionQueue();
+    const orchestration = buildOrchestrationSnapshot({
+      status,
+      tasks: this.synchronizeTaskCatalog(),
+      pendingQuestions,
+      blockers,
+      promptInjectionQueue,
+    });
 
-    status.pendingQuestionCount = questions.filter((question) => question.status === 'pending').length;
+    status.pendingQuestionCount = pendingQuestions.length;
     status.answeredQuestionCount = questions.filter((question) => question.status === 'answered').length;
-    status.pendingInjectionCount = queuedAnswers + queuedNotes;
+    status.pendingInjectionCount = promptInjectionQueue.length;
     status.blockerCount = blockers.length;
+    status.totalTaskCount = orchestration.totalTaskCount;
+    status.activeTaskCount = orchestration.activeTaskCount;
+    status.completedTaskCount = orchestration.completedTaskCount;
+    status.queuedTaskCount = orchestration.queuedTaskCount;
+    status.maxIntegration = orchestration.maxIntegration;
+    status.thinkingText = status.thinkingText || orchestration.thinkingFrames[0];
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     return status;

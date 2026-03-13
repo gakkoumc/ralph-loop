@@ -33,7 +33,11 @@ export class DiscordBridge implements Notifier {
   private readonly actions: RunActions;
   private readonly hooks: { onAbort?: () => void };
 
-  constructor(config: AppConfig, actions: RunActions, hooks: { onAbort?: () => void } = {}) {
+  constructor(
+    config: AppConfig,
+    actions: RunActions,
+    hooks: { onAbort?: () => void } = {},
+  ) {
     this.config = config;
     this.actions = actions;
     this.hooks = hooks;
@@ -150,14 +154,55 @@ export class DiscordBridge implements Notifier {
       return;
     }
 
-    const [command, ...rest] = event.content.trim().split(/\s+/);
+    const trimmed = event.content.trim();
+    const firstSpaceIndex = trimmed.search(/\s/);
+    const command =
+      firstSpaceIndex === -1 ? trimmed : trimmed.slice(0, firstSpaceIndex);
+    const restRaw =
+      firstSpaceIndex === -1 ? '' : trimmed.slice(firstSpaceIndex).trim();
+    const rest = restRaw ? restRaw.split(/\s+/) : [];
 
     if (command === '/status') {
       const status = this.actions.getStatus();
+      const settings = this.actions.getRuntimeSettings();
       await this.sendMessage(
         event.channel_id,
-        `state=${status.lifecycle}\niteration=${status.iteration}/${status.maxIterations}\nstatus=${status.currentStatusText}`,
+        [
+          `state=${status.lifecycle}`,
+          `iteration=${status.iteration}/${status.maxIterations}`,
+          `status=${status.currentStatusText}`,
+          `task=${settings.taskName}`,
+          `mode=${settings.mode}`,
+          `maxIterations=${settings.maxIterations}`,
+        ].join('\n'),
       );
+      return;
+    }
+
+    if (command === '/config') {
+      const settings = this.actions.getRuntimeSettings();
+      await this.sendMessage(
+        event.channel_id,
+        [
+          `task=${settings.taskName}`,
+          `mode=${settings.mode}`,
+          `maxIterations=${settings.maxIterations}`,
+          `idleSeconds=${settings.idleSeconds}`,
+          `agentCommand=${settings.agentCommand}`,
+          `promptFile=${settings.promptFile}`,
+          `promptOverride=${settings.promptBody.trim() ? 'enabled' : 'disabled'}`,
+        ].join('\n'),
+      );
+      return;
+    }
+
+    if (command === '/start') {
+      const requestedTask = restRaw;
+      if (requestedTask) {
+        await this.actions.updateRuntimeSettings({ taskName: requestedTask }, { source: 'discord' });
+      }
+      const result = await this.actions.requestRunStart({ source: 'discord' });
+      await this.sendMessage(event.channel_id, result.message);
       return;
     }
 
@@ -194,7 +239,7 @@ export class DiscordBridge implements Notifier {
     }
 
     if (command === '/note') {
-      const note = rest.join(' ').trim();
+      const note = restRaw;
       if (!note) {
         await this.sendMessage(event.channel_id, 'usage: /note 次ターンで staging を優先');
         return;
@@ -202,6 +247,96 @@ export class DiscordBridge implements Notifier {
 
       await this.actions.enqueueManualNote(note, { source: 'discord' });
       await this.sendMessage(event.channel_id, 'note を queue に追加しました');
+      return;
+    }
+
+    if (command === '/set-task') {
+      const taskName = restRaw;
+      if (!taskName) {
+        await this.sendMessage(event.channel_id, 'usage: /set-task repo-wide rebuild');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ taskName }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'task を更新しました');
+      return;
+    }
+
+    if (command === '/set-iterations') {
+      const value = Number.parseInt(rest[0] ?? '', 10);
+      if (!Number.isFinite(value) || value <= 0) {
+        await this.sendMessage(event.channel_id, 'usage: /set-iterations 40');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ maxIterations: value }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'maxIterations を更新しました');
+      return;
+    }
+
+    if (command === '/set-idle') {
+      const value = Number.parseInt(rest[0] ?? '', 10);
+      if (!Number.isFinite(value) || value <= 0) {
+        await this.sendMessage(event.channel_id, 'usage: /set-idle 3');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ idleSeconds: value }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'idleSeconds を更新しました');
+      return;
+    }
+
+    if (command === '/set-mode') {
+      const mode = rest[0] === 'demo' ? 'demo' : rest[0] === 'command' ? 'command' : null;
+      if (!mode) {
+        await this.sendMessage(event.channel_id, 'usage: /set-mode command|demo');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ mode }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'mode を更新しました');
+      return;
+    }
+
+    if (command === '/set-agent') {
+      const agentCommand = restRaw;
+      if (!agentCommand) {
+        await this.sendMessage(event.channel_id, 'usage: /set-agent codex exec --full-auto --skip-git-repo-check');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ agentCommand }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'agentCommand を更新しました');
+      return;
+    }
+
+    if (command === '/set-prompt-file') {
+      const promptFile = restRaw;
+      if (!promptFile) {
+        await this.sendMessage(event.channel_id, 'usage: /set-prompt-file /abs/path/to/prompt.md');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ promptFile }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'promptFile を更新しました');
+      return;
+    }
+
+    if (command === '/set-prompt') {
+      const promptBody = restRaw;
+      if (!promptBody) {
+        await this.sendMessage(event.channel_id, 'usage: /set-prompt ここに prompt override を書く');
+        return;
+      }
+
+      await this.actions.updateRuntimeSettings({ promptBody }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'prompt override を更新しました');
+      return;
+    }
+
+    if (command === '/clear-prompt') {
+      await this.actions.updateRuntimeSettings({ promptBody: '' }, { source: 'discord' });
+      await this.sendMessage(event.channel_id, 'prompt override をクリアしました');
     }
   }
 

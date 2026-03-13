@@ -6,6 +6,7 @@ import type { RunMode } from './shared/types.ts';
 export interface AppConfig {
   rootDir: string;
   promptFile: string;
+  taskCatalogFile: string;
   stateDir: string;
   logDir: string;
   agentCommand: string;
@@ -71,6 +72,7 @@ export function loadConfig(rootDir: string = process.cwd()): AppConfig {
   loadEnvFile(rootDir);
 
   const promptFile = resolve(rootDir, process.env.RALPH_PROMPT_FILE ?? 'prompts/supervisor.md');
+  const taskCatalogFile = resolve(rootDir, process.env.RALPH_TASK_CATALOG_FILE ?? 'prd.json');
   const stateDir = resolve(rootDir, process.env.RALPH_STATE_DIR ?? 'state');
   const logDir = resolve(rootDir, process.env.RALPH_LOG_DIR ?? 'logs');
   const mode = (process.env.RALPH_AGENT_MODE ?? 'command') as RunMode;
@@ -79,6 +81,7 @@ export function loadConfig(rootDir: string = process.cwd()): AppConfig {
   return {
     rootDir,
     promptFile,
+    taskCatalogFile,
     stateDir,
     logDir,
     agentCommand:

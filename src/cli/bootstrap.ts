@@ -11,6 +11,7 @@ export interface BootstrapOptions {
   startPanel: boolean;
   startSupervisor: boolean;
   startDiscord: boolean;
+  autoStartRun?: boolean;
   config?: AppConfig;
 }
 
@@ -19,6 +20,7 @@ export async function bootstrapSystem(options: BootstrapOptions) {
   const store = new FileStateStore(config);
   await store.ensureInitialized();
   const actions = new RunActions(store, config);
+  await actions.recoverInterruptedRun({ source: 'bootstrap' });
 
   const notifiers = [new ConsoleNotifier()];
   let supervisor: Supervisor | null = null;
@@ -44,7 +46,12 @@ export async function bootstrapSystem(options: BootstrapOptions) {
   }
 
   if (options.startSupervisor) {
-    void supervisor.start();
+    void supervisor.watch();
+  }
+
+  if (options.autoStartRun) {
+    const result = await actions.requestRunStart({ source: 'cli' });
+    console.log(`[run.request] ${result.message}`);
   }
 
   return { config, store, actions, supervisor, discordBridge };

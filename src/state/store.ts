@@ -15,7 +15,9 @@ import type {
   EventRecord,
   ManualNoteRecord,
   QuestionRecord,
+  RuntimeSettings,
   RunStatus,
+  TaskRecord,
 } from '../shared/types.ts';
 
 interface InboxOffsets {
@@ -37,10 +39,16 @@ function defaultStatus(config: AppConfig): RunStatus {
     answeredQuestionCount: 0,
     pendingInjectionCount: 0,
     blockerCount: 0,
+    totalTaskCount: 0,
+    activeTaskCount: 0,
+    completedTaskCount: 0,
+    queuedTaskCount: 0,
+    maxIntegration: 1,
     updatedAt: nowIso(),
     agentCommand: config.agentCommand,
     mode: config.mode,
     promptFile: config.promptFile,
+    thinkingText: '',
   };
 }
 
@@ -54,6 +62,8 @@ export class FileStateStore {
   private readonly answersPath: string;
   private readonly manualNotesPath: string;
   private readonly blockersPath: string;
+  private readonly tasksPath: string;
+  private readonly settingsPath: string;
   private readonly eventsPath: string;
   private readonly agentOutputPath: string;
   private readonly answerInboxPath: string;
@@ -70,6 +80,8 @@ export class FileStateStore {
     this.answersPath = join(this.stateDir, 'answers.json');
     this.manualNotesPath = join(this.stateDir, 'manual-notes.json');
     this.blockersPath = join(this.stateDir, 'blockers.json');
+    this.tasksPath = join(this.stateDir, 'tasks.json');
+    this.settingsPath = join(this.stateDir, 'settings.json');
     this.eventsPath = join(this.stateDir, 'events.jsonl');
     this.agentOutputPath = join(this.logDir, 'agent-output.log');
     this.answerInboxPath = join(this.stateDir, 'answer-inbox.jsonl');
@@ -86,6 +98,8 @@ export class FileStateStore {
     this.writeJsonIfMissing(this.answersPath, []);
     this.writeJsonIfMissing(this.manualNotesPath, []);
     this.writeJsonIfMissing(this.blockersPath, []);
+    this.writeJsonIfMissing(this.tasksPath, []);
+    this.writeJsonIfMissing(this.settingsPath, this.defaultSettings());
     this.writeJsonIfMissing(this.inboxOffsetsPath, { answersLineOffset: 0, notesLineOffset: 0 });
 
     if (!existsSync(this.eventsPath)) {
@@ -145,6 +159,22 @@ export class FileStateStore {
     this.writeJson(this.blockersPath, blockers);
   }
 
+  readTasks(): TaskRecord[] {
+    return this.readJson<TaskRecord[]>(this.tasksPath) ?? [];
+  }
+
+  writeTasks(tasks: TaskRecord[]): void {
+    this.writeJson(this.tasksPath, tasks);
+  }
+
+  readSettings(): RuntimeSettings {
+    return this.readJson<RuntimeSettings>(this.settingsPath) ?? this.defaultSettings();
+  }
+
+  writeSettings(settings: RuntimeSettings): void {
+    this.writeJson(this.settingsPath, settings);
+  }
+
   async listRecentEvents(count: number): Promise<EventRecord[]> {
     const content = await this.readFileOrEmpty(this.eventsPath);
     const lines = content.split('\n').filter(Boolean);
@@ -165,6 +195,19 @@ export class FileStateStore {
 
   async appendAgentOutput(text: string): Promise<void> {
     await appendFile(this.agentOutputPath, text, 'utf8');
+  }
+
+  clearRunArtifacts(): void {
+    this.writeQuestions([]);
+    this.writeAnswers([]);
+    this.writeManualNotes([]);
+    this.writeBlockers([]);
+    this.writeTasks([]);
+    this.writeInboxOffsets({ answersLineOffset: 0, notesLineOffset: 0 });
+    writeFileSync(this.eventsPath, '', 'utf8');
+    writeFileSync(this.agentOutputPath, '', 'utf8');
+    writeFileSync(this.answerInboxPath, '', 'utf8');
+    writeFileSync(this.noteInboxPath, '', 'utf8');
   }
 
   readInboxOffsets(): InboxOffsets {
@@ -217,5 +260,19 @@ export class FileStateStore {
     }
 
     return readFile(filePath, 'utf8');
+  }
+
+  private defaultSettings(): RuntimeSettings {
+    return {
+      taskName: this.config.taskName,
+      agentCommand: this.config.agentCommand,
+      promptFile: this.config.promptFile,
+      promptBody: '',
+      maxIterations: this.config.maxIterations,
+      idleSeconds: this.config.idleSeconds,
+      mode: this.config.mode,
+      updatedAt: nowIso(),
+      updatedBy: 'system',
+    };
   }
 }

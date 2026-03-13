@@ -7,6 +7,7 @@ import { AgentRunner } from './agent-runner.ts';
 export class Supervisor {
   private readonly runner: AgentRunner;
   private isRunning = false;
+  private isWatching = false;
   private pauseNoticeShown = false;
   private readonly config: AppConfig;
   private readonly actions: RunActions;
@@ -17,6 +18,29 @@ export class Supervisor {
     this.actions = actions;
     this.notifier = notifier;
     this.runner = new AgentRunner(config);
+  }
+
+  async watch(): Promise<void> {
+    if (this.isWatching) {
+      return;
+    }
+
+    this.isWatching = true;
+
+    while (this.isWatching) {
+      if (this.isRunning) {
+        await sleep(500);
+        continue;
+      }
+
+      const status = this.actions.getStatus();
+      if (status.phase === 'queued' && status.control !== 'abort_requested') {
+        await this.start();
+        continue;
+      }
+
+      await sleep(500);
+    }
   }
 
   async start(): Promise<void> {

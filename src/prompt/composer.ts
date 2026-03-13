@@ -22,8 +22,13 @@ export function composePromptWithInjections(
   basePrompt: string,
   answers: AnswerRecord[],
   notes: ManualNoteRecord[],
+  extraSections: string[] = [],
 ): PromptCompositionResult {
-  const sections = [renderAnswers(answers), renderNotes(notes)].filter(Boolean) as string[];
+  const sections = [
+    ...extraSections.filter(Boolean),
+    renderAnswers(answers),
+    renderNotes(notes),
+  ].filter(Boolean) as string[];
   if (sections.length === 0) {
     return {
       prompt: basePrompt,

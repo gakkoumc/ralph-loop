@@ -1,6 +1,6 @@
 import type { MarkerMatch } from '../shared/types.ts';
 
-const MARKER_PATTERN = /^\[\[(STATUS|QUESTION|BLOCKER|DONE)\]\]\s*(.*)$/;
+const MARKER_PATTERN = /^\[\[(STATUS|QUESTION|BLOCKER|DONE|THINKING|TASK)\]\]\s*(.*)$/;
 
 export function parseStructuredMarkers(output: string): MarkerMatch[] {
   const lines = output.split(/\r?\n/);

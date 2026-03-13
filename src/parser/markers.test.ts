@@ -69,3 +69,27 @@ test('parseStructuredMarkers keeps multiline bodies until the next marker', () =
     },
   ]);
 });
+
+test('parseStructuredMarkers supports THINKING and TASK markers', () => {
+  const output = `
+[[THINKING]] task graph を再配線しています
+[[TASK]] US-001 | completed | Rust project init
+`.trim();
+
+  assert.deepEqual(parseStructuredMarkers(output), [
+    {
+      kind: 'THINKING',
+      content: 'task graph を再配線しています',
+      raw: '[[THINKING]] task graph を再配線しています',
+      lineStart: 1,
+      lineEnd: 1,
+    },
+    {
+      kind: 'TASK',
+      content: 'US-001 | completed | Rust project init',
+      raw: '[[TASK]] US-001 | completed | Rust project init',
+      lineStart: 2,
+      lineEnd: 2,
+    },
+  ]);
+});

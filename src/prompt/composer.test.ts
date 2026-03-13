@@ -50,3 +50,9 @@ test('composePromptWithInjections leaves prompt unchanged when queue is empty', 
   assert.deepEqual(result.injectedAnswerIds, []);
   assert.deepEqual(result.injectedNoteIds, []);
 });
+
+test('composePromptWithInjections prepends orchestration context when provided', () => {
+  const result = composePromptWithInjections('base prompt', [], [], ['現在の orchestration snapshot:']);
+
+  assert.equal(result.prompt, ['base prompt', '', '---', '現在の orchestration snapshot:', ''].join('\n'));
+});

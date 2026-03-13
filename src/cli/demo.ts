@@ -10,5 +10,6 @@ await bootstrapSystem({
   startPanel: true,
   startSupervisor: true,
   startDiscord: false,
+  autoStartRun: true,
   config,
 });

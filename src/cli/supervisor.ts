@@ -4,4 +4,5 @@ await bootstrapSystem({
   startPanel: false,
   startSupervisor: true,
   startDiscord: false,
+  autoStartRun: true,
 });
