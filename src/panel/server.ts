@@ -29,196 +29,440 @@ function renderHtml(): string {
   <title>RalphLoop Panel</title>
   <style>
     :root {
-      --bg: #f2efe7;
-      --ink: #1d2a33;
-      --card: #fffdf8;
-      --line: #d4cbb8;
-      --accent: #a94918;
-      --soft: #f0d9c9;
-      --warn: #915f12;
-      --danger: #9f2d22;
-      --mono: "IBM Plex Mono", Consolas, monospace;
-      --sans: "Yu Gothic UI", "Hiragino Sans", sans-serif;
+      --bg: #0f1117;
+      --bg-subtle: #161822;
+      --ink: #e4e6ed;
+      --ink-muted: #8b8fa3;
+      --card: #1a1d2b;
+      --card-hover: #1f2235;
+      --line: #2a2d3d;
+      --accent: #6c8cff;
+      --accent-soft: rgba(108, 140, 255, 0.12);
+      --success: #34d399;
+      --success-soft: rgba(52, 211, 153, 0.12);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251, 191, 36, 0.12);
+      --danger: #f87171;
+      --danger-soft: rgba(248, 113, 113, 0.12);
+      --mono: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+      --sans: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
     body {
-      margin: 0;
       color: var(--ink);
       font-family: var(--sans);
-      background:
-        radial-gradient(circle at top left, rgba(169, 73, 24, 0.12), transparent 28%),
-        linear-gradient(180deg, #f7f3ea 0%, var(--bg) 100%);
+      background: var(--bg);
+      line-height: 1.5;
+      min-height: 100vh;
     }
-    main { max-width: 1280px; margin: 0 auto; padding: 24px; }
-    h1, h2 { margin: 0; }
-    .hero, .toolbar, .grid, .list, form { display: grid; gap: 12px; }
-    .hero { grid-template-columns: 1fr auto; align-items: end; margin-bottom: 18px; }
-    .toolbar { grid-auto-flow: column; }
-    .grid { grid-template-columns: repeat(12, 1fr); }
+
+    /* ── Header bar ─────────────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: rgba(15, 17, 23, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .topbar-brand .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--ink-muted);
+      flex-shrink: 0;
+    }
+    .topbar-brand .dot.running { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .topbar-brand .dot.paused  { background: var(--warn);    box-shadow: 0 0 8px var(--warn); }
+    .topbar-brand .dot.failed,
+    .topbar-brand .dot.aborted { background: var(--danger);  box-shadow: 0 0 8px var(--danger); }
+    .topbar-actions { display: flex; gap: 8px; }
+
+    /* ── Buttons ────────────────────────────────────────────── */
+    button {
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 7px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      font-family: var(--sans);
+      transition: background 0.15s, transform 0.1s;
+    }
+    button:active { transform: scale(0.97); }
+    button.primary   { background: var(--accent); color: #fff; }
+    button.primary:hover { background: #5a7ae6; }
+    button.secondary { background: var(--line); color: var(--ink); }
+    button.secondary:hover { background: #363a4f; }
+    button.warn   { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(251,191,36,0.25); }
+    button.warn:hover { background: rgba(251,191,36,0.2); }
+    button.danger { background: var(--danger-soft); color: var(--danger); border: 1px solid rgba(248,113,113,0.25); }
+    button.danger:hover { background: rgba(248,113,113,0.2); }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    main { max-width: 1360px; margin: 0 auto; padding: 20px 24px 48px; }
+
+    /* ── KPI row ────────────────────────────────────────────── */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .kpi {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      transition: border-color 0.2s;
+    }
+    .kpi:hover { border-color: var(--accent); }
+    .kpi-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-muted); margin-bottom: 6px; }
+    .kpi-value { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; }
+    .kpi-meta  { font-size: 0.8rem; color: var(--ink-muted); margin-top: 6px; line-height: 1.4; }
+
+    /* ── Grid ───────────────────────────────────────────────── */
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .span-4  { grid-column: span 4; }
+    .span-5  { grid-column: span 5; }
+    .span-6  { grid-column: span 6; }
+    .span-7  { grid-column: span 7; }
+    .span-8  { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+
+    /* ── Card ───────────────────────────────────────────────── */
     .card {
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 16px;
-      box-shadow: 0 10px 30px rgba(20, 30, 40, 0.05);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
     }
-    .span-3 { grid-column: span 3; }
-    .span-4 { grid-column: span 4; }
-    .span-6 { grid-column: span 6; }
-    .span-8 { grid-column: span 8; }
-    .span-12 { grid-column: span 12; }
-    .label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #7b878f; }
-    .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
-    .meta { color: #5d6a71; line-height: 1.5; margin-top: 10px; }
-    .item {
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .card-header h2 { font-size: 0.95rem; font-weight: 700; }
+    .card-body { padding: 14px 18px; flex: 1; overflow-y: auto; }
+    .card-body.no-pad { padding: 0; }
+
+    /* ── Chat-style Q&A ────────────────────────────────────── */
+    .chat-list { display: flex; flex-direction: column; gap: 12px; }
+    .chat-bubble {
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      max-width: 100%;
+      line-height: 1.5;
+    }
+    .chat-bubble.question {
+      background: var(--accent-soft);
+      border: 1px solid rgba(108,140,255,0.2);
+      border-left: 3px solid var(--accent);
+    }
+    .chat-bubble.answer {
+      background: var(--success-soft);
+      border: 1px solid rgba(52,211,153,0.2);
+      border-left: 3px solid var(--success);
+    }
+    .chat-bubble .chat-id {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+    }
+    .chat-bubble .chat-text { font-size: 0.9rem; }
+    .chat-bubble .chat-meta {
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      margin-top: 6px;
+    }
+    .answer-form {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .answer-form textarea {
+      flex: 1;
+      resize: vertical;
+      min-height: 40px;
+    }
+    .answer-form button {
+      align-self: flex-end;
+      white-space: nowrap;
+    }
+
+    /* ── Injection items ───────────────────────────────────── */
+    .inject-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .inject-item:last-child { border-bottom: none; }
+    .inject-item .kind-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 6px;
+    }
+    .inject-item .kind-badge.answer { background: var(--success-soft); color: var(--success); }
+    .inject-item .kind-badge.note   { background: var(--accent-soft);  color: var(--accent); }
+    .inject-item .inject-text { margin-top: 4px; font-size: 0.88rem; }
+
+    /* ── Blocker items ─────────────────────────────────────── */
+    .blocker-item {
+      padding: 10px 14px;
+      border-left: 3px solid var(--danger);
+      background: var(--danger-soft);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+    }
+    .blocker-item:last-child { margin-bottom: 0; }
+    .blocker-item .blocker-id {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      margin-bottom: 2px;
+    }
+
+    /* ── Note form ─────────────────────────────────────────── */
+    .note-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .note-form textarea {
+      resize: vertical;
+    }
+
+    /* ── Forms ──────────────────────────────────────────────── */
+    textarea {
+      width: 100%;
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px;
-      background: #fffaf3;
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      background: var(--bg-subtle);
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.9rem;
+      transition: border-color 0.15s;
     }
-    .item small { display: block; margin-bottom: 6px; color: #6f7a81; font-family: var(--mono); }
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    textarea::placeholder { color: var(--ink-muted); }
+
+    /* ── Log pre blocks ────────────────────────────────────── */
+    pre {
+      margin: 0;
+      max-height: 360px;
+      overflow: auto;
+      background: var(--bg);
+      color: var(--ink);
+      border-radius: 0;
+      padding: 14px 18px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.55;
+    }
+
+    /* ── Event log ─────────────────────────────────────────── */
+    .event-list { display: flex; flex-direction: column; }
+    .event-row {
+      display: flex;
+      gap: 10px;
+      padding: 6px 18px;
+      font-size: 0.82rem;
+      font-family: var(--mono);
+      border-bottom: 1px solid rgba(42,45,61,0.5);
+      align-items: baseline;
+    }
+    .event-row:hover { background: var(--bg-subtle); }
+    .event-row .ev-time { color: var(--ink-muted); white-space: nowrap; flex-shrink: 0; width: 80px; }
+    .event-row .ev-level { width: 14px; flex-shrink: 0; text-align: center; }
+    .event-row .ev-level.info    { color: var(--accent); }
+    .event-row .ev-level.warning { color: var(--warn); }
+    .event-row .ev-level.error   { color: var(--danger); }
+    .event-row .ev-type { color: var(--ink-muted); white-space: nowrap; flex-shrink: 0; width: 140px; }
+    .event-row .ev-msg  { flex: 1; color: var(--ink); }
+
+    /* ── Badge / pill ──────────────────────────────────────── */
     .pill {
       display: inline-flex;
       align-items: center;
-      padding: 6px 10px;
+      padding: 3px 10px;
       border-radius: 999px;
-      background: var(--soft);
-      color: var(--accent);
-      font-size: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
-    textarea, input {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 12px;
-      background: #fff;
-      font: inherit;
+    .pill.muted   { background: var(--line); color: var(--ink-muted); }
+    .pill.accent  { background: var(--accent-soft); color: var(--accent); }
+    .pill.success { background: var(--success-soft); color: var(--success); }
+    .pill.warn    { background: var(--warn-soft); color: var(--warn); }
+    .pill.danger  { background: var(--danger-soft); color: var(--danger); }
+
+    /* ── Status colors ─────────────────────────────────────── */
+    .status-idle      { color: var(--ink-muted); }
+    .status-starting  { color: var(--accent); }
+    .status-running   { color: var(--success); }
+    .status-paused    { color: var(--warn); }
+    .status-completed { color: var(--accent); }
+    .status-failed    { color: var(--danger); }
+    .status-aborted   { color: var(--danger); }
+
+    /* ── Empty state ───────────────────────────────────────── */
+    .empty { color: var(--ink-muted); font-style: italic; padding: 16px 0; text-align: center; font-size: 0.85rem; }
+
+    /* ── Refresh indicator ─────────────────────────────────── */
+    .refresh-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success);
+      display: inline-block;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
     }
-    button {
-      border: none;
-      border-radius: 999px;
-      padding: 10px 14px;
-      cursor: pointer;
-      font-weight: 700;
-      background: var(--ink);
-      color: white;
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
     }
-    button.secondary { background: #61717a; }
-    button.warn { background: var(--warn); }
-    button.danger { background: var(--danger); }
-    pre {
-      margin: 0;
-      max-height: 340px;
-      overflow: auto;
-      background: #152028;
-      color: #e8f1e8;
-      border-radius: 14px;
-      padding: 14px;
-      font-family: var(--mono);
-      white-space: pre-wrap;
+
+    /* ── Responsive ────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+      .span-4, .span-5, .span-6, .span-7, .span-8, .span-12 { grid-column: span 12; }
     }
-    .empty { color: #7f8a90; font-style: italic; }
-    @media (max-width: 960px) {
-      .hero { grid-template-columns: 1fr; }
-      .toolbar { grid-auto-flow: row; }
-      .span-3, .span-4, .span-6, .span-8, .span-12 { grid-column: span 12; }
+    @media (max-width: 640px) {
+      .kpi-row { grid-template-columns: 1fr; }
+      .topbar { flex-direction: column; gap: 10px; align-items: stretch; text-align: center; }
+      .topbar-brand { justify-content: center; }
+      .topbar-actions { flex-wrap: wrap; justify-content: center; }
+      .topbar-actions button { flex: 1; min-width: 80px; padding: 10px 16px; }
+      main { padding: 12px; }
     }
   </style>
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span id="statusDot" class="dot"></span>
+      <span>RalphLoop Panel</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="secondary" onclick="refreshDashboard()">
+        <span class="refresh-dot"></span>Refresh
+      </button>
+      <button class="warn" onclick="postAction('/api/pause')">⏸ Pause</button>
+      <button class="primary" onclick="postAction('/api/resume')">▶ Resume</button>
+      <button class="danger" onclick="postAction('/api/abort')">✕ Abort</button>
+    </div>
+  </header>
+
   <main>
-    <section class="hero">
-      <div>
-        <h1>RalphLoop Supervisor Panel</h1>
-        <p>Discord と同じ state を見ながら、pause / resume / abort / answer / note injection を操作する一画面コンソールです。</p>
-      </div>
-      <div class="toolbar">
-        <button class="secondary" onclick="refreshDashboard()">Refresh</button>
-        <button class="warn" onclick="postAction('/api/pause')">Pause</button>
-        <button onclick="postAction('/api/resume')">Resume</button>
-        <button class="danger" onclick="postAction('/api/abort')">Abort</button>
-      </div>
+    <section class="kpi-row">
+      <article class="kpi">
+        <div class="kpi-label">Run State</div>
+        <div id="lifecycle" class="kpi-value">-</div>
+        <div id="statusMeta" class="kpi-meta"></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-label">Task</div>
+        <div id="task" class="kpi-value" style="font-size:1.1rem;">-</div>
+        <div id="phaseMeta" class="kpi-meta"></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-label">Iteration</div>
+        <div id="iteration" class="kpi-value">0</div>
+        <div id="iterationMeta" class="kpi-meta"></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-label">Prompt Queue</div>
+        <div id="injectionCount" class="kpi-value">0</div>
+        <div id="queueMeta" class="kpi-meta"></div>
+      </article>
     </section>
 
     <section class="grid">
-      <article class="card span-3">
-        <div class="label">Run State</div>
-        <div id="lifecycle" class="value">-</div>
-        <div id="statusMeta" class="meta"></div>
-      </article>
-      <article class="card span-3">
-        <div class="label">Task</div>
-        <div id="task" class="value" style="font-size: 20px;">-</div>
-        <div id="phaseMeta" class="meta"></div>
-      </article>
-      <article class="card span-3">
-        <div class="label">Iteration</div>
-        <div id="iteration" class="value">0</div>
-        <div id="iterationMeta" class="meta"></div>
-      </article>
-      <article class="card span-3">
-        <div class="label">Prompt Queue</div>
-        <div id="injectionCount" class="value">0</div>
-        <div id="queueMeta" class="meta"></div>
+      <article class="card span-7">
+        <div class="card-header">
+          <h2>❓ Questions &amp; Answers</h2>
+          <span id="pendingCount" class="pill accent">0 pending</span>
+        </div>
+        <div class="card-body" id="qaSection">
+          <div class="chat-list" id="qaList"></div>
+        </div>
       </article>
 
-      <article class="card span-6">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Pending Questions</h2>
-          <span id="pendingCount" class="pill">0 items</span>
-        </header>
-        <div id="pendingQuestions" class="list"></div>
+      <article class="card span-5">
+        <div class="card-header">
+          <h2>💉 Prompt Injection Queue</h2>
+          <span class="pill muted">one-shot</span>
+        </div>
+        <div class="card-body no-pad" id="injectionQueue"></div>
+
+        <div class="card-header" style="border-top:1px solid var(--line);">
+          <h2>📝 Manual Note</h2>
+          <span class="pill muted">next turn</span>
+        </div>
+        <div class="card-body">
+          <form class="note-form" onsubmit="submitNote(event)">
+            <textarea id="noteText" rows="3" placeholder="次ターンの prompt に一度だけ差し込むメモ…"></textarea>
+            <button type="submit" class="primary" style="align-self:flex-end;">Add Note</button>
+          </form>
+        </div>
       </article>
 
-      <article class="card span-6">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Prompt Injection Queue</h2>
-          <span class="pill">one-shot injection</span>
-        </header>
-        <div id="injectionQueue" class="list"></div>
+      <article class="card span-5">
+        <div class="card-header">
+          <h2>⛔ Blockers</h2>
+          <span id="blockerCount" class="pill danger">0</span>
+        </div>
+        <div class="card-body" id="blockers"></div>
       </article>
 
-      <article class="card span-6">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Manual Note</h2>
-          <span class="pill">next turn only</span>
-        </header>
-        <form onsubmit="submitNote(event)">
-          <textarea id="noteText" rows="4" placeholder="次ターン prompt に一度だけ差し込むメモ"></textarea>
-          <button type="submit">Add Note</button>
-        </form>
-      </article>
-
-      <article class="card span-6">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Answered Questions</h2>
-          <span id="answeredCount" class="pill">0 items</span>
-        </header>
-        <div id="answeredQuestions" class="list"></div>
-      </article>
-
-      <article class="card span-4">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Blockers</h2>
-          <span id="blockerCount" class="pill">0 items</span>
-        </header>
-        <div id="blockers" class="list"></div>
-      </article>
-
-      <article class="card span-8">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Recent Events</h2>
-          <span class="pill">JSONL tail</span>
-        </header>
-        <pre id="eventsLog">(loading)</pre>
+      <article class="card span-7">
+        <div class="card-header">
+          <h2>📋 Recent Events</h2>
+          <span class="pill muted">live tail</span>
+        </div>
+        <div class="card-body no-pad" style="max-height:340px;overflow-y:auto;">
+          <div class="event-list" id="eventsLog"></div>
+        </div>
       </article>
 
       <article class="card span-12">
-        <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2>Agent Output Tail</h2>
-          <span class="pill">latest log</span>
-        </header>
-        <pre id="agentLog">(loading)</pre>
+        <div class="card-header">
+          <h2>🖥 Agent Output</h2>
+          <span class="pill muted">latest log</span>
+        </div>
+        <div class="card-body no-pad">
+          <pre id="agentLog">(loading)</pre>
+        </div>
       </article>
     </section>
   </main>
@@ -231,6 +475,36 @@ function renderHtml(): string {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    function formatTime(iso) {
+      if (!iso) return '-';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch { return iso; }
+    }
+
+    function levelIcon(level) {
+      if (level === 'error')   return '●';
+      if (level === 'warning') return '▲';
+      return '•';
+    }
+
+    function lifecycleClass(lifecycle) {
+      const map = {
+        idle: 'status-idle', starting: 'status-starting', running: 'status-running',
+        paused: 'status-paused', completed: 'status-completed',
+        failed: 'status-failed', aborted: 'status-aborted',
+      };
+      return map[lifecycle] || '';
+    }
+
+    function dotClass(lifecycle) {
+      if (lifecycle === 'running' || lifecycle === 'starting') return 'running';
+      if (lifecycle === 'paused') return 'paused';
+      if (lifecycle === 'failed' || lifecycle === 'aborted') return 'failed';
+      return '';
     }
 
     async function postAction(path, payload = {}) {
@@ -248,10 +522,11 @@ function renderHtml(): string {
 
     async function submitNote(event) {
       event.preventDefault();
-      const note = document.getElementById('noteText').value.trim();
+      const el = document.getElementById('noteText');
+      const note = el.value.trim();
       if (!note) return;
       await postAction('/api/note', { note });
-      document.getElementById('noteText').value = '';
+      el.value = '';
     }
 
     async function submitAnswer(questionId) {
@@ -262,87 +537,132 @@ function renderHtml(): string {
       input.value = '';
     }
 
-    function renderList(rootId, html, emptyText) {
-      const root = document.getElementById(rootId);
-      root.innerHTML = html || '<div class="empty">' + escapeHtml(emptyText) + '</div>';
-    }
+    function renderQA(pending, answered) {
+      const el = document.getElementById('qaList');
+      document.getElementById('pendingCount').textContent = pending.length + ' pending';
 
-    function renderPendingQuestions(items) {
-      document.getElementById('pendingCount').textContent = items.length + ' items';
-      renderList('pendingQuestions', items.map((item) => \`
-        <div class="item">
-          <small>\${escapeHtml(item.id)} / \${escapeHtml(item.createdAt)}</small>
-          <div>\${escapeHtml(item.text)}</div>
-          <form onsubmit="event.preventDefault(); submitAnswer('\${escapeHtml(item.id)}');">
-            <textarea id="answer-\${escapeHtml(item.id)}" rows="3" placeholder="この質問への回答"></textarea>
-            <button type="submit">Submit Answer</button>
-          </form>
-        </div>
-      \`).join(''), 'pending question はありません');
+      if (pending.length === 0 && answered.length === 0) {
+        el.innerHTML = '<div class="empty">質問はまだありません</div>';
+        return;
+      }
+
+      let html = '';
+
+      for (const q of pending) {
+        html += \`
+          <div class="chat-bubble question">
+            <div class="chat-id">\${escapeHtml(q.id)} — pending</div>
+            <div class="chat-text">\${escapeHtml(q.text)}</div>
+            <div class="chat-meta">\${formatTime(q.createdAt)}</div>
+            <form class="answer-form" onsubmit="event.preventDefault(); submitAnswer('\${escapeHtml(q.id)}');">
+              <textarea id="answer-\${escapeHtml(q.id)}" rows="2" placeholder="回答を入力…"></textarea>
+              <button type="submit" class="primary">送信</button>
+            </form>
+          </div>\`;
+      }
+
+      for (const q of answered) {
+        html += \`
+          <div class="chat-bubble question">
+            <div class="chat-id">\${escapeHtml(q.id)} — answered</div>
+            <div class="chat-text">\${escapeHtml(q.text)}</div>
+            <div class="chat-meta">\${formatTime(q.createdAt)}</div>
+          </div>
+          <div class="chat-bubble answer">
+            <div class="chat-id">\${escapeHtml(q.answer?.id || '')}</div>
+            <div class="chat-text">\${escapeHtml(q.answer?.answer || '(missing)')}</div>
+            <div class="chat-meta">\${formatTime(q.answeredAt)}</div>
+          </div>\`;
+      }
+
+      el.innerHTML = html;
     }
 
     function renderInjectionQueue(items) {
-      renderList('injectionQueue', items.map((item) => \`
-        <div class="item">
-          <small>\${escapeHtml(item.kind)} / \${escapeHtml(item.label)} / \${escapeHtml(item.createdAt)}</small>
-          <div>\${escapeHtml(item.text)}</div>
-        </div>
-      \`).join(''), '注入待ち項目はありません');
-    }
+      const el = document.getElementById('injectionQueue');
+      if (items.length === 0) {
+        el.innerHTML = '<div class="empty">注入待ち項目はありません</div>';
+        return;
+      }
 
-    function renderAnswered(items) {
-      document.getElementById('answeredCount').textContent = items.length + ' items';
-      renderList('answeredQuestions', items.map((item) => \`
-        <div class="item">
-          <small>\${escapeHtml(item.id)} / answered at \${escapeHtml(item.answeredAt || '-')}</small>
-          <div><strong>Q:</strong> \${escapeHtml(item.text)}</div>
-          <div><strong>A:</strong> \${escapeHtml(item.answer?.answer || '(missing)')}</div>
+      el.innerHTML = items.map((item) => \`
+        <div class="inject-item">
+          <span class="kind-badge \${escapeHtml(item.kind)}">\${escapeHtml(item.kind)}</span>
+          <span style="font-family:var(--mono);font-size:0.75rem;color:var(--ink-muted);">\${escapeHtml(item.label)}</span>
+          <div class="inject-text">\${escapeHtml(item.text)}</div>
         </div>
-      \`).join(''), 'まだ回答済み質問はありません');
+      \`).join('');
     }
 
     function renderBlockers(items) {
-      document.getElementById('blockerCount').textContent = items.length + ' items';
-      renderList('blockers', items.map((item) => \`
-        <div class="item">
-          <small>\${escapeHtml(item.id)} / \${escapeHtml(item.createdAt)}</small>
+      const el = document.getElementById('blockers');
+      document.getElementById('blockerCount').textContent = String(items.length);
+      if (items.length === 0) {
+        el.innerHTML = '<div class="empty">blocker はありません</div>';
+        return;
+      }
+
+      el.innerHTML = items.map((item) => \`
+        <div class="blocker-item">
+          <div class="blocker-id">\${escapeHtml(item.id)} / \${formatTime(item.createdAt)}</div>
           <div>\${escapeHtml(item.text)}</div>
         </div>
-      \`).join(''), 'blocker はありません');
+      \`).join('');
+    }
+
+    function renderEvents(events) {
+      const el = document.getElementById('eventsLog');
+      if (events.length === 0) {
+        el.innerHTML = '<div class="empty" style="padding:18px;">イベントはまだありません</div>';
+        return;
+      }
+
+      el.innerHTML = events.map((ev) => \`
+        <div class="event-row">
+          <span class="ev-time">\${formatTime(ev.timestamp)}</span>
+          <span class="ev-level \${escapeHtml(ev.level)}">\${levelIcon(ev.level)}</span>
+          <span class="ev-type">\${escapeHtml(ev.type)}</span>
+          <span class="ev-msg">\${escapeHtml(ev.message)}</span>
+        </div>
+      \`).join('');
     }
 
     async function refreshDashboard() {
-      const response = await fetch('/api/dashboard');
-      const data = await response.json();
+      try {
+        const response = await fetch('/api/dashboard');
+        const data = await response.json();
+        const s = data.status;
 
-      document.getElementById('lifecycle').textContent = data.status.lifecycle;
-      document.getElementById('task').textContent = data.status.task;
-      document.getElementById('iteration').textContent = String(data.status.iteration);
-      document.getElementById('injectionCount').textContent = String(data.status.pendingInjectionCount);
-      document.getElementById('statusMeta').innerHTML =
-        '<div>control: ' + escapeHtml(data.status.control) + '</div>' +
-        '<div>updated: ' + escapeHtml(data.status.updatedAt) + '</div>';
-      document.getElementById('phaseMeta').innerHTML =
-        '<div>phase: ' + escapeHtml(data.status.phase) + '</div>' +
-        '<div>status: ' + escapeHtml(data.status.currentStatusText) + '</div>';
-      document.getElementById('iterationMeta').innerHTML =
-        '<div>max: ' + escapeHtml(String(data.status.maxIterations)) + '</div>' +
-        '<div>mode: ' + escapeHtml(data.status.mode) + '</div>';
-      document.getElementById('queueMeta').innerHTML =
-        '<div>pending questions: ' + escapeHtml(String(data.status.pendingQuestionCount)) + '</div>' +
-        '<div>answered: ' + escapeHtml(String(data.status.answeredQuestionCount)) + '</div>';
+        const lifecycleEl = document.getElementById('lifecycle');
+        lifecycleEl.textContent = s.lifecycle;
+        lifecycleEl.className = 'kpi-value ' + lifecycleClass(s.lifecycle);
 
-      renderPendingQuestions(data.pendingQuestions);
-      renderInjectionQueue(data.promptInjectionQueue);
-      renderAnswered(data.answeredQuestions);
-      renderBlockers(data.blockers);
-      document.getElementById('eventsLog').textContent = data.recentEvents
-        .map((event) => JSON.stringify(event))
-        .join('\\n');
-      document.getElementById('agentLog').textContent = data.agentLogTail.join('\\n');
+        document.getElementById('statusDot').className = 'dot ' + dotClass(s.lifecycle);
+        document.getElementById('task').textContent = s.task || '-';
+        document.getElementById('iteration').textContent = s.iteration + ' / ' + s.maxIterations;
+        document.getElementById('injectionCount').textContent = String(s.pendingInjectionCount);
+
+        document.getElementById('statusMeta').innerHTML =
+          'control: <strong>' + escapeHtml(s.control) + '</strong><br>' +
+          'updated: ' + formatTime(s.updatedAt);
+        document.getElementById('phaseMeta').innerHTML =
+          'phase: <strong>' + escapeHtml(s.phase) + '</strong><br>' +
+          escapeHtml(s.currentStatusText || '-');
+        document.getElementById('iterationMeta').textContent = 'mode: ' + s.mode;
+        document.getElementById('queueMeta').innerHTML =
+          'pending: ' + s.pendingQuestionCount + ' / answered: ' + s.answeredQuestionCount;
+
+        renderQA(data.pendingQuestions, data.answeredQuestions);
+        renderInjectionQueue(data.promptInjectionQueue);
+        renderBlockers(data.blockers);
+        renderEvents(data.recentEvents);
+        document.getElementById('agentLog').textContent = data.agentLogTail.join('\\n');
+      } catch (err) {
+        console.error('refresh failed', err);
+      }
     }
 
-    setInterval(refreshDashboard, 5000);
+    setInterval(refreshDashboard, 4000);
     refreshDashboard();
   </script>
 </body>
