@@ -359,7 +359,10 @@ function renderHtml(): string {
     }
     @media (max-width: 640px) {
       .kpi-row { grid-template-columns: 1fr; }
-      .topbar { flex-direction: column; gap: 10px; }
+      .topbar { flex-direction: column; gap: 10px; align-items: stretch; text-align: center; }
+      .topbar-brand { justify-content: center; }
+      .topbar-actions { flex-wrap: wrap; justify-content: center; }
+      .topbar-actions button { flex: 1; min-width: 80px; padding: 10px 16px; }
       main { padding: 12px; }
     }
   </style>
