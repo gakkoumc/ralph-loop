@@ -1,18 +1,13 @@
-# Ralph Loop（暫定運用向け）
+# RalphLoop
 
-このリポジトリは、LuLOS を作るまでの一時運用でも使いやすいように、Ralph を **止めずに回し続ける** ための機能をまとめています。
+Codex を外側から監督しつつ、`ralph` を主コマンドとして扱う、Task中心の orchestration-first RalphLoop です。
 
-- CLIで進捗が見える
-- AIの発話を明確に見分けられる
-- Discord通知（任意）
-- Webパネルだけでも同等の監視・回答入力ができる
-- AIから質問が出ても、回答待ちで停止せず継続する
+このリポジトリの目的は、`ralph.sh` ベースの最小 loop を、Task board / agent lanes / MaxIntegration を持つ運用ツールへ置き換えることです。
 
 ## 使い方（クイックスタート）
 
 ```bash
-chmod +x ./ralph-loop/ralph.sh
-./ralph-loop/ralph.sh "codex exec --full-auto" 20
+./ralph demo
 ```
 
 ## 使い方解説
@@ -41,10 +36,36 @@ chmod +x ./ralph-loop/ralph.sh
 
 ### 4. AIから質問が来たとき
 
-AIが以下を出力した場合:
+- `RALPH_AGENT_COMMAND`
+- `RALPH_AGENT_MODE`
+- `RALPH_PROMPT_FILE`
+- `RALPH_TASK_CATALOG_FILE`
+- `RALPH_STATE_DIR`
+- `RALPH_LOG_DIR`
+- `RALPH_MAX_ITERATIONS`
+- `RALPH_IDLE_SECONDS`
+- `RALPH_PANEL_HOST`
+- `RALPH_PANEL_PORT`
+- `RALPH_TASK_NAME`
+- `RALPH_DISCORD_TOKEN`
+- `RALPH_DISCORD_NOTIFY_CHANNEL_ID`
+- `RALPH_DISCORD_DM_USER_ID`
+- `RALPH_DISCORD_APP_NAME`
+
+## 構成
 
 ```text
-<question>...</question>
+src/actions      共通 action layer
+src/cli          起動エントリ
+src/demo         demo agent
+src/discord      Discord bridge
+src/panel        Web panel
+src/orchestration MaxIntegration / lane derivation
+src/parser       structured marker parser
+src/prompt       prompt composition
+src/state        JSON / JSONL state store
+src/tasks        PRD task loader
+src/supervisor   run supervisor
 ```
 
 - ループは停止せず継続

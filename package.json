@@ -1,0 +1,28 @@
+{
+  "name": "ralph-loop",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Temporary supervisor-based RalphLoop for Codex",
+  "bin": {
+    "ralph": "./ralph"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types src/cli/ralph.ts start",
+    "app:start": "node --experimental-strip-types src/cli/ralph.ts start",
+    "run": "node --experimental-strip-types src/cli/ralph.ts run",
+    "start-run": "node --experimental-strip-types src/cli/ralph.ts start-run",
+    "configure": "node --experimental-strip-types src/cli/ralph.ts configure",
+    "supervisor:start": "node --experimental-strip-types src/cli/ralph.ts supervisor",
+    "panel:start": "node --experimental-strip-types src/cli/ralph.ts panel",
+    "discord:start": "node --experimental-strip-types src/cli/ralph.ts discord",
+    "demo": "node --experimental-strip-types src/cli/ralph.ts demo",
+    "status": "node --experimental-strip-types src/cli/ralph.ts status",
+    "build": "node scripts/build.mjs",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --experimental-strip-types --test --test-isolation=none"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
