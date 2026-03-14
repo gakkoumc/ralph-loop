@@ -29,29 +29,33 @@ function renderHelp(): string {
   return [
     'ralph <command> [options]',
     '',
-    'Commands:',
-    '  ralph                    Start the always-on Ralph service',
-    '  ralph start [task]       Start the always-on Ralph service',
-    '  ralph run [task]         Start the full stack and immediately run once',
-    '  ralph start-run [task]   Queue a run for an already-running service',
-    '  ralph configure [opts]   Persist runtime settings without starting the service',
-    '  ralph panel              Start only the web panel',
-    '  ralph supervisor         Start only the supervisor loop',
-    '  ralph discord            Start only the Discord bridge',
-    '  ralph demo [task]        Start demo mode and immediately run it',
-    '  ralph status             Print the current dashboard snapshot',
-    '  ralph help               Show this help',
+    'コマンド:',
+    '  ralph                    常駐サービスを起動',
+    '  ralph start [task]       常駐サービスを起動',
+    '  ralph run [task]         全体を起動してそのまま 1 回実行',
+    '  ralph start-run [task]   既存サービスに実行予約を追加',
+    '  ralph configure [opts]   サービスを起動せず実行設定だけ保存',
+    '  ralph panel              Web パネルだけ起動',
+    '  ralph supervisor         監督ループだけ起動',
+    '  ralph discord            Discord 連携だけ起動',
+    '  ralph demo [task]        デモモードで起動してすぐ実行',
+    '  ralph status             現在の状態を表示',
+    '  ralph help               このヘルプを表示',
     '',
-    'Options:',
-    '  --task <text>            Override the run task label',
-    '  --agent-command <cmd>    Override the child agent command',
-    '  --prompt-file <path>     Override the prompt file path',
-    '  --mode <command|demo>    Override the run mode',
-    '  --panel-host <host>      Override panel host',
-    '  --panel-port <port>      Override panel port',
-    '  --max-iterations <n>     Override max iterations',
-    '  --idle-seconds <n>       Override idle seconds',
-    '  --json                   Print status as JSON for `ralph status`',
+    '日本語エイリアス:',
+    '  起動=start  実行=run  実行予約=start-run  設定=configure  画面=panel',
+    '  監督=supervisor  ディスコード=discord  デモ=demo  状態=status  ヘルプ=help',
+    '',
+    'オプション:',
+    '  --task <text>            実行する Task 名を上書き',
+    '  --agent-command <cmd>    実行エージェントのコマンドを上書き',
+    '  --prompt-file <path>     prompt ファイルのパスを上書き',
+    '  --mode <command|demo>    実行モードを上書き',
+    '  --panel-host <host>      panel の host を上書き',
+    '  --panel-port <port>      panel の port を上書き',
+    '  --max-iterations <n>     思考回数を上書き',
+    '  --idle-seconds <n>       待機秒数を上書き',
+    '  --json                   `ralph status` を JSON で出力',
   ].join('\n');
 }
 
@@ -69,12 +73,31 @@ function resolveCommand(value?: string): RalphCommand | null {
     return 'start';
   }
 
-  if (
-    ['start', 'run', 'start-run', 'configure', 'panel', 'supervisor', 'discord', 'demo', 'status', 'help'].includes(
-      value,
-    )
-  ) {
-    return value as RalphCommand;
+  const aliases: Record<string, RalphCommand> = {
+    start: 'start',
+    起動: 'start',
+    run: 'run',
+    実行: 'run',
+    'start-run': 'start-run',
+    実行予約: 'start-run',
+    configure: 'configure',
+    設定: 'configure',
+    panel: 'panel',
+    画面: 'panel',
+    supervisor: 'supervisor',
+    監督: 'supervisor',
+    discord: 'discord',
+    ディスコード: 'discord',
+    demo: 'demo',
+    デモ: 'demo',
+    status: 'status',
+    状態: 'status',
+    help: 'help',
+    ヘルプ: 'help',
+  };
+
+  if (aliases[value]) {
+    return aliases[value];
   }
 
   return null;
@@ -185,7 +208,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (command === 'demo') {
     overrides.mode = 'demo';
-    overrides.taskName = overrides.taskName || 'Ralph orchestration demo';
+    overrides.taskName = overrides.taskName || 'Ralph デモ実行';
   }
 
   return {
@@ -220,14 +243,16 @@ async function printStatus(config: AppConfig, json: boolean): Promise<void> {
   }
 
   console.log([
-    `task: ${dashboard.status.task}`,
-    `lifecycle: ${dashboard.status.lifecycle}`,
-    `phase: ${dashboard.status.phase}`,
-    `iteration: ${dashboard.status.iteration}/${dashboard.status.maxIterations}`,
-    `maxIntegration: ${dashboard.status.maxIntegration}`,
-    `tasks: ${dashboard.status.activeTaskCount} active / ${dashboard.status.queuedTaskCount} queued / ${dashboard.status.completedTaskCount} completed`,
-    `questions: ${dashboard.status.pendingQuestionCount} pending / ${dashboard.status.answeredQuestionCount} answered`,
-    `thinking: ${dashboard.thinkingFrames[0] ?? dashboard.status.currentStatusText ?? '-'}`,
+    `Task: ${dashboard.status.task}`,
+    `状態: ${dashboard.status.lifecycle}`,
+    `進行: ${dashboard.status.phase}`,
+    `反復: ${dashboard.status.iteration}/${dashboard.status.maxIterations}`,
+    `MaxIntegration: ${dashboard.status.maxIntegration}`,
+    `Task数: ${dashboard.status.activeTaskCount} 件進行中 / ${dashboard.status.queuedTaskCount} 件待機 / ${dashboard.status.completedTaskCount} 件完了`,
+    `現在のTask: ${dashboard.currentTask ? `${dashboard.currentTask.id} ${dashboard.currentTask.title}` : '-'}`,
+    `次のTask: ${dashboard.nextTask ? `${dashboard.nextTask.id} ${dashboard.nextTask.title}` : '-'}`,
+    `質問: ${dashboard.status.pendingQuestionCount} 件待ち / ${dashboard.status.answeredQuestionCount} 件回答済み`,
+    `思考: ${dashboard.thinkingFrames[0] ?? dashboard.status.currentStatusText ?? '-'}`,
   ].join('\n'));
 }
 
@@ -250,11 +275,11 @@ async function configureRuntime(config: AppConfig, overrides: Partial<AppConfig>
 
   console.log(
     [
-      'runtime settings updated',
-      `task: ${settings.taskName}`,
-      `mode: ${settings.mode}`,
-      `maxIterations: ${settings.maxIterations}`,
-      `idleSeconds: ${settings.idleSeconds}`,
+      '実行設定を更新しました',
+      `Task: ${settings.taskName}`,
+      `実行方式: ${settings.mode === 'demo' ? 'デモ' : '通常実行'}`,
+      `最大思考回数: ${settings.maxIterations}`,
+      `待機秒数: ${settings.idleSeconds}`,
     ].join('\n'),
   );
 }

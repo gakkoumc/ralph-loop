@@ -22,6 +22,11 @@ function clamp(value: number, min: number, max: number): number {
 
 function sortTasks(tasks: TaskRecord[]): TaskRecord[] {
   return [...tasks].sort((left, right) => {
+    const orderDelta = left.sortIndex - right.sortIndex;
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+
     const priorityDelta = PRIORITY_WEIGHT[left.priority] - PRIORITY_WEIGHT[right.priority];
     if (priorityDelta !== 0) {
       return priorityDelta;
@@ -54,7 +59,7 @@ export function buildOrchestrationSnapshot(
   const unfinishedTasks = sortedTasks.filter((task) => task.status !== 'completed');
   const maxIntegration = deriveMaxIntegration(unfinishedTasks.length || sortedTasks.length);
   const pendingTasks = unfinishedTasks.filter((task) => task.status === 'pending');
-  const activeIds = new Set(pendingTasks.slice(0, maxIntegration).map((task) => task.id));
+  const activeIds = new Set(pendingTasks.slice(0, 1).map((task) => task.id));
 
   const taskBoard: TaskBoardItem[] = sortedTasks.map((task) => {
     const displayStatus =
@@ -82,7 +87,7 @@ export function buildOrchestrationSnapshot(
 
   agentLanes.push({
     id: 'supervisor',
-    name: 'Supervisor',
+    name: '監督レーン',
     role: 'supervisor',
     status:
       input.status.lifecycle === 'completed'
@@ -92,7 +97,7 @@ export function buildOrchestrationSnapshot(
           : input.status.control === 'paused'
             ? 'waiting'
             : 'thinking',
-    focus: input.status.currentStatusText || 'Loop coordination and routing',
+    focus: input.status.currentStatusText || '全体の進行を監督し、次の一手を振り分けています',
     load: activeTasks.length + input.pendingQuestions.length + input.blockerCount,
     capacity: Math.max(1, maxIntegration),
     taskIds: activeTasks.slice(0, 2).map((task) => task.id),
@@ -101,7 +106,7 @@ export function buildOrchestrationSnapshot(
 
   agentLanes.push({
     id: 'planner',
-    name: 'Planner',
+    name: '計画レーン',
     role: 'planner',
     status:
       input.pendingQuestions.length > 0
@@ -113,10 +118,10 @@ export function buildOrchestrationSnapshot(
             : 'idle',
     focus:
       input.pendingQuestions.length > 0
-        ? `${input.pendingQuestions.length} human answer(s) pending`
+        ? `${input.pendingQuestions.length} 件の人間回答待ちがあります`
         : queuedTasks.length > 0
-          ? `${queuedTasks.length} task(s) queued for next pass`
-          : 'Task graph aligned',
+          ? `${queuedTasks.length} 件のTaskを次回に回します`
+          : 'Taskの流れは整理済みです',
     load: queuedTasks.length + input.pendingQuestions.length,
     capacity: Math.max(1, maxIntegration),
     taskIds: queuedTasks.slice(0, 3).map((task) => task.id),
@@ -127,7 +132,7 @@ export function buildOrchestrationSnapshot(
     const task = activeTasks[index];
     agentLanes.push({
       id: `worker-${index + 1}`,
-      name: `Worker ${index + 1}`,
+      name: `実行レーン ${index + 1}`,
       role: 'worker',
       status:
         task?.displayStatus === 'active'
@@ -137,7 +142,7 @@ export function buildOrchestrationSnapshot(
             : input.status.control === 'paused'
               ? 'waiting'
               : 'idle',
-      focus: task ? task.title : 'Open capacity for new task slices',
+      focus: task ? task.title : '次のTaskを受け取れる待機枠です',
       load: task ? 1 : 0,
       capacity: 1,
       taskIds: task ? [task.id] : [],
@@ -147,7 +152,7 @@ export function buildOrchestrationSnapshot(
 
   agentLanes.push({
     id: 'integrator',
-    name: 'Integrator',
+    name: '統合レーン',
     role: 'integrator',
     status:
       input.blockers.length > 0
@@ -161,10 +166,10 @@ export function buildOrchestrationSnapshot(
               : 'idle',
     focus:
       input.blockers.length > 0
-        ? `${input.blockers.length} blocker signal(s) isolated`
+        ? `${input.blockers.length} 件の要対応を切り出しています`
         : completedTasks.length > 0
-          ? `${completedTasks.length} completed slice(s) ready to fold in`
-          : 'No finished slice to integrate yet',
+          ? `${completedTasks.length} 件の完了Taskを取り込めます`
+          : 'まだ統合待ちの完了Taskはありません',
     load: completedTasks.length + input.blockers.length,
     capacity: maxIntegration,
     taskIds: completedTasks.slice(-maxIntegration).map((task) => task.id),
@@ -172,26 +177,26 @@ export function buildOrchestrationSnapshot(
   });
 
   const thinkingFrames = [
-    input.status.thinkingText || input.status.currentStatusText || 'Ralph is rebuilding the run as an orchestration deck.',
-    `${activeTasks.length} active lane(s), ${queuedTasks.length} queued, ${completedTasks.length} completed.`,
-    `MaxIntegration ${maxIntegration} is derived from ${unfinishedTasks.length || sortedTasks.length} task(s).`,
+    input.status.thinkingText || input.status.currentStatusText || 'Ralph が Task の流れを組み直しています。',
+    `${activeTasks.length} 件進行中、${queuedTasks.length} 件待機、${completedTasks.length} 件完了です。`,
+    `MaxIntegration は ${unfinishedTasks.length || sortedTasks.length} 件のTaskから ${maxIntegration} に決まっています。`,
   ];
 
   if (input.pendingQuestions.length > 0) {
     thinkingFrames.push(
-      `${input.pendingQuestions.length} human answer(s) are pending. Unblocked lanes keep moving.`,
+      `${input.pendingQuestions.length} 件の回答待ちがありますが、止まらず進めています。`,
     );
   }
 
   if (input.promptInjectionQueue.length > 0) {
     thinkingFrames.push(
-      `${input.promptInjectionQueue.length} injection item(s) are staged for the next turn.`,
+      `${input.promptInjectionQueue.length} 件の差し込み情報を次のターンに回します。`,
     );
   }
 
   if (input.blockers.length > 0) {
     thinkingFrames.push(
-      `${input.blockers.length} blocker signal(s) are visible without freezing the whole run.`,
+      `${input.blockers.length} 件の要対応を可視化しつつ、全体は止めていません。`,
     );
   }
 

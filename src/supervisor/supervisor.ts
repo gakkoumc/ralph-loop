@@ -67,13 +67,13 @@ export class Supervisor {
 
         const markerResult = await this.processOutput(result.output);
         if (markerResult.done) {
-          await this.notifier.notifyDone('DONE marker を検知しました');
+          await this.notifier.notifyDone('DONE マーカーを検知しました');
           return;
         }
 
         if (result.exitCode && result.exitCode !== 0) {
           await this.actions.recordAgentStatus(
-            `agent command は exit code ${result.exitCode} で終了しましたが、loop は継続します`,
+            `agent command は exit code ${result.exitCode} で終了しましたが、処理は継続します`,
           );
         }
 

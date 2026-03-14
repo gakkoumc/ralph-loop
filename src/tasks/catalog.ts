@@ -22,6 +22,7 @@ export interface TaskSeed {
   summary: string;
   acceptanceCriteria: string[];
   priority: TaskPriority;
+  sortIndex: number;
   status: StoredTaskStatus;
   notes?: string;
   source: string;
@@ -43,7 +44,7 @@ function mapPriority(value?: number): TaskPriority {
   return 'low';
 }
 
-function toTaskSeed(story: PrdStory): TaskSeed | null {
+function toTaskSeed(story: PrdStory, index: number): TaskSeed | null {
   if (!story.id || !story.title) {
     return null;
   }
@@ -54,6 +55,7 @@ function toTaskSeed(story: PrdStory): TaskSeed | null {
     summary: story.title,
     acceptanceCriteria: story.acceptanceCriteria ?? [],
     priority: mapPriority(story.priority),
+    sortIndex: index + 1,
     status: story.passes ? 'completed' : 'pending',
     notes: story.notes || undefined,
     source: 'prd',
@@ -68,7 +70,7 @@ export function loadTaskSeeds(config: AppConfig): TaskSeed[] {
   try {
     const payload = JSON.parse(readFileSync(config.taskCatalogFile, 'utf8')) as PrdPayload;
     return (payload.userStories ?? [])
-      .map((story) => toTaskSeed(story))
+      .map((story, index) => toTaskSeed(story, index))
       .filter((story): story is TaskSeed => Boolean(story));
   } catch {
     return [];
@@ -81,6 +83,7 @@ export function makeSyntheticTask(taskName: string, timestamp: string): TaskReco
     title: taskName || 'Ralph root task',
     summary: taskName || 'Ralph root task',
     priority: 'high',
+    sortIndex: 1,
     status: 'pending',
     createdAt: timestamp,
     updatedAt: timestamp,

@@ -163,7 +163,7 @@ test('RunActions requestRunStart rejects duplicate queued runs', async () => {
 
   assert.equal(first.started, true);
   assert.equal(second.started, false);
-  assert.equal(second.message, 'run is already queued');
+  assert.equal(second.message, 'run はすでに待機列にあります');
 
   rmSync(rootDir, { recursive: true, force: true });
 });
@@ -189,7 +189,7 @@ test('RunActions requestRunStart rejects invalid prompt settings', async () => {
   const result = await actions.requestRunStart({ source: 'test' });
 
   assert.equal(result.started, false);
-  assert.match(result.message, /promptFile not found/);
+  assert.match(result.message, /promptFile が見つかりません/);
 
   rmSync(rootDir, { recursive: true, force: true });
 });
@@ -215,6 +215,62 @@ test('RunActions recovers stale active run state on bootstrap', async () => {
   assert.ok(recovered);
   assert.equal(recovered?.lifecycle, 'failed');
   assert.equal(recovered?.phase, 'interrupted');
+
+  rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('RunActions creates, updates, completes, and reopens tasks while tracking current and next task', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'ralph-loop-'));
+  mkdirSync(join(rootDir, 'prompts'), { recursive: true });
+  writeFileSync(join(rootDir, 'prompts', 'supervisor.md'), 'base prompt', { encoding: 'utf8' });
+  writeFileSync(
+    join(rootDir, 'prd.json'),
+    JSON.stringify(
+      {
+        userStories: [
+          { id: 'US-001', title: '最初のTask', priority: 1, passes: false },
+          { id: 'US-002', title: '次のTask', priority: 2, passes: false },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = makeConfig(rootDir);
+  const store = new FileStateStore(config);
+  await store.ensureInitialized();
+  const actions = new RunActions(store, config);
+
+  const initial = await actions.getDashboardData();
+  assert.equal(initial.currentTask?.id, 'US-001');
+  assert.equal(initial.nextTask?.id, 'US-002');
+
+  const created = await actions.createTask(
+    { title: '追加Task', summary: 'あとで取り組むTask' },
+    { source: 'test' },
+  );
+  assert.equal(created.id, 'T-001');
+
+  const updated = await actions.updateTask(
+    created.id,
+    { title: '追加Task更新', summary: '説明も更新' },
+    { source: 'test' },
+  );
+  assert.equal(updated?.title, '追加Task更新');
+  assert.equal(updated?.summary, '説明も更新');
+
+  await actions.completeTask('US-001', { source: 'test' });
+  const afterComplete = await actions.getDashboardData();
+  assert.equal(afterComplete.currentTask?.id, 'US-002');
+  assert.equal(afterComplete.taskBoard.find((task) => task.id === 'US-001')?.displayStatus, 'completed');
+
+  await actions.reopenTask('US-001', { source: 'test' });
+  const afterReopen = await actions.getDashboardData();
+  assert.equal(afterReopen.currentTask?.id, 'US-001');
+  assert.equal(afterReopen.nextTask?.id, 'US-002');
+  assert.equal(afterReopen.taskBoard.find((task) => task.id === created.id)?.title, '追加Task更新');
 
   rmSync(rootDir, { recursive: true, force: true });
 });

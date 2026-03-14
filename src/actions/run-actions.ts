@@ -17,6 +17,7 @@ import type {
   RunStatus,
   RunMode,
   StoredTaskStatus,
+  TaskBoardItem,
   TaskRecord,
 } from '../shared/types.ts';
 import { FileStateStore } from '../state/store.ts';
@@ -34,6 +35,11 @@ export interface RuntimeSettingsInput {
   maxIterations?: number;
   idleSeconds?: number;
   mode?: RunMode;
+}
+
+export interface TaskDraftInput {
+  title?: string;
+  summary?: string;
 }
 
 interface ParsedTaskMarker {
@@ -94,23 +100,33 @@ function renderOrchestrationSummary(
   const unfinished = taskBoard.filter((task) => task.displayStatus !== 'completed');
   const active = unfinished.filter((task) => task.displayStatus === 'active');
   const queued = unfinished.filter((task) => task.displayStatus === 'queued');
+  const currentTask = active[0];
+  const nextTask = queued[0];
 
   const sections = [
     '現在の orchestration snapshot:',
     `- MaxIntegration: ${maxIntegration}`,
-    `- Active Tasks: ${active.length}`,
-    `- Queued Tasks: ${queued.length}`,
+    `- 進行中Task: ${active.length}`,
+    `- 待機Task: ${queued.length}`,
   ];
 
+  if (currentTask) {
+    sections.push(`- 現在のTask: ${currentTask.id} / ${currentTask.title}`);
+  }
+
+  if (nextTask) {
+    sections.push(`- 次のTask: ${nextTask.id} / ${nextTask.title}`);
+  }
+
   if (active.length > 0) {
-    sections.push('- In-flight:');
+    sections.push('- いま進めるTask:');
     for (const task of active.slice(0, maxIntegration)) {
       sections.push(`  - ${task.id}: ${task.title}`);
     }
   }
 
   if (queued.length > 0) {
-    sections.push('- Next Up:');
+    sections.push('- 次に進めるTask:');
     for (const task of queued.slice(0, maxIntegration)) {
       sections.push(`  - ${task.id}: ${task.title}`);
     }
@@ -151,10 +167,14 @@ export class RunActions {
       blockers,
       promptInjectionQueue,
     });
+    const currentTask = this.findCurrentTask(orchestration.taskBoard);
+    const nextTask = this.findNextTask(orchestration.taskBoard);
 
     return {
       status,
       settings,
+      currentTask,
+      nextTask,
       pendingQuestions,
       answeredQuestions,
       blockers,
@@ -208,11 +228,11 @@ export class RunActions {
     status.maxIterations = next.maxIterations;
     status.agentCommand = next.agentCommand;
     status.mode = next.mode;
-    status.promptFile = next.promptBody.trim() ? '[inline prompt override]' : next.promptFile;
+    status.promptFile = next.promptBody.trim() ? '[画面またはDiscordからの prompt 上書き]' : next.promptFile;
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
 
-    await this.appendEvent('settings.updated', 'info', `${actor.source} が runtime settings を更新しました`, {
+    await this.appendEvent('settings.updated', 'info', `${actor.source} が実行設定を更新しました`, {
       source: actor.source,
       maxIterations: next.maxIterations,
       mode: next.mode,
@@ -220,6 +240,133 @@ export class RunActions {
 
     this.refreshStatusCounters();
     return next;
+  }
+
+  async createTask(input: TaskDraftInput, actor: ActionActor): Promise<TaskRecord> {
+    const title = input.title?.trim();
+    if (!title) {
+      throw new Error('Task 名を入力してください');
+    }
+
+    const tasks = this.synchronizeTaskCatalog();
+    const nextIndex = tasks.reduce((max, task) => Math.max(max, task.sortIndex), 0) + 1;
+    const timestamp = nowIso();
+    const taskId = nextSequentialId(
+      'T',
+      tasks
+        .map((task) => task.id)
+        .filter((id) => /^T-\d+$/.test(id)),
+    );
+
+    const record: TaskRecord = {
+      id: taskId,
+      title,
+      summary: input.summary?.trim() || title,
+      priority: 'high',
+      sortIndex: nextIndex,
+      status: 'pending',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      source: actor.source,
+      acceptanceCriteria: [],
+    };
+
+    tasks.push(record);
+    this.store.writeTasks(tasks);
+    await this.appendEvent('task.created', 'info', `${record.id}: ${record.title}`, {
+      source: actor.source,
+      taskId: record.id,
+    });
+    this.refreshStatusCounters();
+    return record;
+  }
+
+  async updateTask(
+    taskId: string,
+    input: TaskDraftInput,
+    actor: ActionActor,
+  ): Promise<TaskRecord | null> {
+    const tasks = this.synchronizeTaskCatalog();
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return null;
+    }
+
+    const nextTitle = input.title?.trim();
+    const nextSummary = input.summary?.trim();
+    if (nextTitle) {
+      task.title = nextTitle;
+    }
+    if (nextSummary !== undefined) {
+      task.summary = nextSummary || task.title;
+    }
+    task.updatedAt = nowIso();
+    task.source = actor.source;
+
+    this.store.writeTasks(tasks);
+    await this.appendEvent('task.updated', 'info', `${task.id}: ${task.title}`, {
+      source: actor.source,
+      taskId: task.id,
+    });
+    this.refreshStatusCounters();
+    return task;
+  }
+
+  async completeTask(taskId: string, actor: ActionActor): Promise<TaskRecord | null> {
+    const tasks = this.synchronizeTaskCatalog();
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return null;
+    }
+
+    task.status = 'completed';
+    task.completedAt = nowIso();
+    task.updatedAt = task.completedAt;
+    task.source = actor.source;
+    this.store.writeTasks(tasks);
+
+    const nextTask = this.findNextTask(buildOrchestrationSnapshot({
+      status: this.store.readStatus(),
+      tasks,
+      pendingQuestions: this.listPendingQuestions(),
+      blockers: this.store.readBlockers(),
+      promptInjectionQueue: this.listPromptInjectionQueue(),
+    }).taskBoard);
+
+    const status = this.store.readStatus();
+    status.currentStatusText = nextTask
+      ? `${task.id} を完了しました。次は ${nextTask.id} に進みます`
+      : `${task.id} を完了しました。残りのTaskはありません`;
+    status.thinkingText = status.currentStatusText;
+    status.updatedAt = nowIso();
+    this.store.writeStatus(status);
+
+    await this.appendEvent('task.completed', 'info', `${task.id}: ${task.title}`, {
+      source: actor.source,
+      taskId: task.id,
+    });
+    this.refreshStatusCounters();
+    return task;
+  }
+
+  async reopenTask(taskId: string, actor: ActionActor): Promise<TaskRecord | null> {
+    const tasks = this.synchronizeTaskCatalog();
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return null;
+    }
+
+    task.status = 'pending';
+    task.completedAt = undefined;
+    task.updatedAt = nowIso();
+    task.source = actor.source;
+    this.store.writeTasks(tasks);
+    await this.appendEvent('task.reopened', 'warning', `${task.id}: ${task.title}`, {
+      source: actor.source,
+      taskId: task.id,
+    });
+    this.refreshStatusCounters();
+    return task;
   }
 
   async requestRunStart(
@@ -230,7 +377,7 @@ export class RunActions {
       return {
         started: false,
         status: this.refreshStatusCounters(),
-        message: 'run is already queued',
+        message: 'run はすでに待機列にあります',
       };
     }
 
@@ -238,7 +385,7 @@ export class RunActions {
       return {
         started: false,
         status: this.refreshStatusCounters(),
-        message: 'run is already active',
+        message: 'run はすでに実行中です',
       };
     }
 
@@ -282,8 +429,8 @@ export class RunActions {
     status.updatedAt = nowIso();
     status.agentCommand = settings.agentCommand;
     status.mode = settings.mode;
-    status.promptFile = settings.promptBody.trim() ? '[inline prompt override]' : settings.promptFile;
-    status.thinkingText = 'Ralph is standing by and ready to take the first turn.';
+    status.promptFile = settings.promptBody.trim() ? '[画面またはDiscordからの prompt 上書き]' : settings.promptFile;
+    status.thinkingText = 'Ralph は待機中です。最初のTaskから着手できます。';
     this.store.writeStatus(status);
 
     this.synchronizeTaskCatalog();
@@ -294,7 +441,7 @@ export class RunActions {
     return {
       started: true,
       status: this.refreshStatusCounters(),
-      message: 'run start queued',
+      message: 'run 開始を待機列に追加しました',
     };
   }
 
@@ -308,11 +455,11 @@ export class RunActions {
     status.phase = 'interrupted';
     status.control = 'running';
     status.currentStatusText = '前回の run は service 再起動で中断されました';
-    status.thinkingText = 'Recovered from a stale active state. Ralph is ready for the next queued run.';
+    status.thinkingText = '前回の中断状態を回復しました。次の run を受け付けできます。';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
-    await this.appendEvent('run.recovered', 'warning', `${actor.source} が stale run state を回復しました`, {
+    await this.appendEvent('run.recovered', 'warning', `${actor.source} が古い実行状態を回復しました`, {
       source: actor.source,
     });
     return this.refreshStatusCounters();
@@ -323,7 +470,7 @@ export class RunActions {
     status.control = 'paused';
     status.lifecycle = status.lifecycle === 'running' ? 'pause_requested' : 'paused';
     status.phase = 'paused';
-    status.thinkingText = 'Run is paused. Ralph keeps the orchestration state intact.';
+    status.thinkingText = '一時停止中です。Task と状態は保持しています。';
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     await this.appendEvent('run.pause', 'warning', `${actor.source} が pause を要求しました`);
@@ -335,7 +482,7 @@ export class RunActions {
     status.control = 'running';
     status.lifecycle = status.lifecycle === 'paused' ? 'running' : status.lifecycle;
     status.phase = 'running';
-    status.thinkingText = 'Ralph resumed. Active lanes are warming up again.';
+    status.thinkingText = '再開しました。現在のTaskから続けます。';
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     await this.appendEvent('run.resume', 'info', `${actor.source} が resume しました`);
@@ -347,11 +494,11 @@ export class RunActions {
     status.control = 'abort_requested';
     status.lifecycle = 'aborted';
     status.phase = 'aborted';
-    status.thinkingText = 'Abort requested. Ralph is collapsing the current turn safely.';
+    status.thinkingText = '中断要求を受け取りました。現在のターンを安全に閉じます。';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
-    await this.appendEvent('run.abort', 'error', `${actor.source} が abort を要求しました`);
+    await this.appendEvent('run.abort', 'error', `${actor.source} が中断を要求しました`);
     return this.refreshStatusCounters();
   }
 
@@ -533,7 +680,7 @@ export class RunActions {
 
       if (marker.kind === 'DONE') {
         done = true;
-        await this.markDone(marker.content || 'DONE marker received');
+        await this.markDone(marker.content || 'DONE マーカーを受信しました');
       }
     }
 
@@ -650,6 +797,7 @@ export class RunActions {
       existing.summary = parsed.title || existing.summary;
       existing.status = parsed.status;
       existing.updatedAt = timestamp;
+      existing.completedAt = parsed.status === 'completed' ? timestamp : undefined;
       existing.source = source;
     } else {
       tasks.push({
@@ -657,9 +805,11 @@ export class RunActions {
         title: parsed.title,
         summary: parsed.title,
         priority: 'medium',
+        sortIndex: tasks.reduce((max, task) => Math.max(max, task.sortIndex), 0) + 1,
         status: parsed.status,
         createdAt: timestamp,
         updatedAt: timestamp,
+        completedAt: parsed.status === 'completed' ? timestamp : undefined,
         source,
         acceptanceCriteria: [],
       });
@@ -676,6 +826,19 @@ export class RunActions {
   }
 
   async markDone(message: string): Promise<void> {
+    const currentTask = this.findCurrentTask(
+      buildOrchestrationSnapshot({
+        status: this.store.readStatus(),
+        tasks: this.synchronizeTaskCatalog(),
+        pendingQuestions: this.listPendingQuestions(),
+        blockers: this.store.readBlockers(),
+        promptInjectionQueue: this.listPromptInjectionQueue(),
+      }).taskBoard,
+    );
+    if (currentTask) {
+      await this.completeTask(currentTask.id, { source: 'agent' });
+    }
+
     const status = this.store.readStatus();
     status.lifecycle = 'completed';
     status.control = 'running';
@@ -701,9 +864,9 @@ export class RunActions {
     status.updatedAt = nowIso();
     status.agentCommand = settings.agentCommand;
     status.mode = settings.mode;
-    status.promptFile = settings.promptBody.trim() ? '[inline prompt override]' : settings.promptFile;
+    status.promptFile = settings.promptBody.trim() ? '[画面またはDiscordからの prompt 上書き]' : settings.promptFile;
     status.maxIterations = settings.maxIterations;
-    status.thinkingText = 'Ralph is mapping the task graph and assigning worker lanes.';
+    status.thinkingText = 'Task の流れを確認し、最初のTaskに担当を割り当てています。';
     this.store.writeStatus(status);
     this.synchronizeTaskCatalog();
     await this.appendEvent('run.started', 'info', 'supervisor を開始しました', {
@@ -717,7 +880,7 @@ export class RunActions {
     status.iteration = iteration;
     status.phase = status.control === 'paused' ? 'paused' : 'running';
     status.lifecycle = status.control === 'paused' ? 'paused' : 'running';
-    status.thinkingText = `Iteration ${iteration} is in flight. Ralph is rotating active lanes.`;
+    status.thinkingText = `${iteration} 回目の思考を進めています。現在のTaskを中心に回しています。`;
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     return this.refreshStatusCounters();
@@ -728,7 +891,7 @@ export class RunActions {
     status.lifecycle = 'failed';
     status.phase = 'max_iterations_reached';
     status.currentStatusText = '最大反復回数に到達しました';
-    status.thinkingText = 'Iteration ceiling reached before the task graph fully converged.';
+    status.thinkingText = '思考回数の上限に到達しました。続きは次の run で進めてください。';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -740,7 +903,7 @@ export class RunActions {
     status.lifecycle = status.control === 'abort_requested' ? 'aborted' : 'failed';
     status.phase = status.lifecycle;
     status.lastError = error instanceof Error ? error.stack ?? error.message : String(error);
-    status.thinkingText = 'Ralph hit a runtime fault while coordinating the run.';
+    status.thinkingText = '実行中に障害が発生しました。状態を確認して次の run を準備してください。';
     status.finishedAt = nowIso();
     status.updatedAt = status.finishedAt;
     this.store.writeStatus(status);
@@ -814,7 +977,9 @@ export class RunActions {
       const nextStatus =
         seed.status === 'completed'
           ? 'completed'
-          : existing?.status === 'blocked'
+          : existing?.status === 'completed'
+            ? 'completed'
+            : existing?.status === 'blocked'
             ? 'blocked'
             : 'pending';
 
@@ -823,6 +988,7 @@ export class RunActions {
         title: seed.title,
         summary: seed.summary,
         priority: seed.priority,
+        sortIndex: existing?.sortIndex ?? seed.sortIndex,
         status: nextStatus,
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt:
@@ -836,6 +1002,7 @@ export class RunActions {
         source: seed.source,
         acceptanceCriteria: seed.acceptanceCriteria,
         notes: seed.notes ?? existing?.notes,
+        completedAt: nextStatus === 'completed' ? existing?.completedAt ?? timestamp : undefined,
       };
     });
 
@@ -856,19 +1023,19 @@ export class RunActions {
 
   private validateRuntimeSettings(settings: RuntimeSettings): string | null {
     if (!settings.taskName.trim()) {
-      return 'taskName is required before starting a run';
+      return 'run を開始する前に taskName を設定してください';
     }
 
     if (settings.mode === 'command' && !settings.agentCommand.trim()) {
-      return 'agentCommand is required in command mode';
+      return '通常実行では agentCommand が必要です';
     }
 
     if (!settings.promptBody.trim() && !settings.promptFile.trim()) {
-      return 'promptBody or promptFile is required before starting a run';
+      return 'run を開始する前に promptBody または promptFile を設定してください';
     }
 
     if (!settings.promptBody.trim() && !existsSync(settings.promptFile)) {
-      return `promptFile not found: ${settings.promptFile}`;
+      return `promptFile が見つかりません: ${settings.promptFile}`;
     }
 
     return null;
@@ -901,6 +1068,32 @@ export class RunActions {
     status.updatedAt = nowIso();
     this.store.writeStatus(status);
     return status;
+  }
+
+  private findCurrentTask(taskBoard: TaskBoardItem[]): TaskBoardItem | undefined {
+    return taskBoard.find((task) => task.displayStatus === 'active')
+      ?? taskBoard.find((task) => task.displayStatus === 'queued');
+  }
+
+  private findNextTask(taskBoard: TaskBoardItem[]): TaskBoardItem | undefined {
+    const currentTask = this.findCurrentTask(taskBoard);
+    if (!currentTask) {
+      return undefined;
+    }
+
+    let seenCurrent = false;
+    for (const task of taskBoard) {
+      if (task.id === currentTask.id) {
+        seenCurrent = true;
+        continue;
+      }
+
+      if (seenCurrent && task.displayStatus !== 'completed') {
+        return task;
+      }
+    }
+
+    return undefined;
   }
 
   private async appendEvent(

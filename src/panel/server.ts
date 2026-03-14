@@ -7,7 +7,7 @@ export interface PanelServerHooks {
   onAbort?: () => void;
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, string>> {
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Uint8Array[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.from(chunk));
@@ -17,7 +17,7 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, st
     return {};
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, string>;
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
 function renderHtml(): string {
@@ -26,7 +26,7 @@ function renderHtml(): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Ralph Command Deck</title>
+  <title>Ralph 管制画面</title>
   <style>
     :root {
       --bg: #08111b;
@@ -535,6 +535,21 @@ function renderHtml(): string {
       border-radius: var(--radius-md);
       padding: 14px;
       background: rgba(255,255,255,0.03);
+      transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+    }
+
+    .task-item.current {
+      border-color: rgba(86, 198, 187, 0.28);
+      box-shadow: 0 16px 32px rgba(86, 198, 187, 0.08);
+    }
+
+    .task-item.next {
+      border-color: rgba(242, 193, 78, 0.24);
+      box-shadow: 0 16px 32px rgba(242, 193, 78, 0.06);
+    }
+
+    .task-item:hover {
+      transform: translateY(-1px);
     }
 
     .task-row {
@@ -588,6 +603,13 @@ function renderHtml(): string {
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 10px;
+    }
+
+    .task-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
     }
 
     .conversation-item {
@@ -818,16 +840,16 @@ function renderHtml(): string {
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <div class="eyebrow"><span class="pulse"></span>ralph orchestration deck</div>
-          <h1 id="heroTask">Ralph is warming up</h1>
+          <div class="eyebrow"><span class="pulse"></span>ralph 管制画面</div>
+          <h1 id="heroTask">Ralph を起動しました</h1>
           <p class="hero-subtitle">
-            単一ステータス画面ではなく、task load と integration capacity を中心に loop を監督します。
+            単一ステータス画面ではなく、Task の進行と次に着手する Task を中心に loop を監督します。
           </p>
           <div id="flashMessage" class="flash"></div>
           <div class="thinking-shell">
-            <div class="thinking-label">Thinking Stream</div>
+            <div class="thinking-label">思考の流れ</div>
             <div id="thinkingTrack" class="thinking-track">
-              <div id="thinkingCurrent" class="thinking-line current">Ralph is thinking...</div>
+              <div id="thinkingCurrent" class="thinking-line current">Ralph が考えています...</div>
               <div id="thinkingNext" class="thinking-line next"></div>
             </div>
           </div>
@@ -837,28 +859,28 @@ function renderHtml(): string {
           <div class="hero-panel">
             <div class="hero-meta">
               <div class="meta-box">
-                <div class="meta-label">Lifecycle</div>
+                <div class="meta-label">状態</div>
                 <div id="heroLifecycle" class="meta-value">idle</div>
               </div>
               <div class="meta-box">
-                <div class="meta-label">Iteration</div>
+                <div class="meta-label">反復回数</div>
                 <div id="heroIteration" class="meta-value">0 / 0</div>
               </div>
               <div class="meta-box">
-                <div class="meta-label">Command</div>
+                <div class="meta-label">コマンド</div>
                 <div id="heroCommand" class="meta-value" style="font-size:0.95rem; line-height:1.4;">-</div>
               </div>
               <div class="meta-box">
-                <div class="meta-label">Updated</div>
+                <div class="meta-label">更新時刻</div>
                 <div id="heroUpdated" class="meta-value" style="font-size:0.95rem;">-</div>
               </div>
             </div>
             <div class="control-row">
-              <button class="btn-secondary" onclick="refreshDashboard()">Refresh</button>
-              <button class="btn-primary" onclick="startRun()">Start Run</button>
-              <button class="btn-warn" onclick="postAction('/api/pause')">Pause</button>
-              <button class="btn-secondary" onclick="postAction('/api/resume')">Resume</button>
-              <button class="btn-danger" onclick="postAction('/api/abort')">Abort</button>
+              <button class="btn-secondary" onclick="refreshDashboard()">更新</button>
+              <button class="btn-primary" onclick="startRun()">実行開始</button>
+              <button class="btn-warn" onclick="postAction('/api/pause')">一時停止</button>
+              <button class="btn-secondary" onclick="postAction('/api/resume')">再開</button>
+              <button class="btn-danger" onclick="postAction('/api/abort')">中断</button>
             </div>
           </div>
         </div>
@@ -867,24 +889,24 @@ function renderHtml(): string {
 
     <section class="stats">
       <article class="stat-card">
-        <div class="stat-label">MaxIntegration</div>
+        <div class="stat-label">統合上限</div>
         <div id="statIntegration" class="stat-value">1</div>
-        <div id="statIntegrationMeta" class="stat-meta">Derived from task load.</div>
+        <div id="statIntegrationMeta" class="stat-meta">Task量から自動決定します。</div>
       </article>
       <article class="stat-card">
-        <div class="stat-label">Task Pressure</div>
+        <div class="stat-label">Task 数</div>
         <div id="statTasks" class="stat-value">0</div>
-        <div id="statTasksMeta" class="stat-meta">No tasks loaded.</div>
+        <div id="statTasksMeta" class="stat-meta">Task はまだありません。</div>
       </article>
       <article class="stat-card">
-        <div class="stat-label">Human Loop</div>
+        <div class="stat-label">確認待ち</div>
         <div id="statQuestions" class="stat-value">0</div>
-        <div id="statQuestionsMeta" class="stat-meta">No pending answers.</div>
+        <div id="statQuestionsMeta" class="stat-meta">確認待ちはありません。</div>
       </article>
       <article class="stat-card">
-        <div class="stat-label">Injection Queue</div>
+        <div class="stat-label">差し込み待ち</div>
         <div id="statQueue" class="stat-value">0</div>
-        <div id="statQueueMeta" class="stat-meta">Next-turn note and answer load.</div>
+        <div id="statQueueMeta" class="stat-meta">次ターンに反映する情報です。</div>
       </article>
     </section>
 
@@ -892,46 +914,46 @@ function renderHtml(): string {
       <article class="card span-12">
         <div class="card-header">
           <div>
-            <div class="card-title">Runtime Control</div>
-            <div class="card-subtitle">サイトから task / prompt / 思考回数を更新し、そのまま run を開始できます。</div>
+            <div class="card-title">実行設定</div>
+            <div class="card-subtitle">サイトから Task / prompt / 思考回数を更新し、そのまま実行を始められます。</div>
           </div>
-          <span id="settingsMeta" class="pill">runtime</span>
+          <span id="settingsMeta" class="pill">実行設定</span>
         </div>
         <div class="card-body">
           <form id="settingsForm" class="settings-grid" onsubmit="saveSettings(event)">
             <div class="settings-field">
               <label for="settingsTaskName">Task</label>
-              <input id="settingsTaskName" placeholder="Ralph run task" />
+              <input id="settingsTaskName" placeholder="今回の実行名" />
             </div>
             <div class="settings-field">
-              <label for="settingsMaxIterations">Max Iterations</label>
+              <label for="settingsMaxIterations">思考回数</label>
               <input id="settingsMaxIterations" type="number" min="1" step="1" />
             </div>
             <div class="settings-field">
-              <label for="settingsIdleSeconds">Idle Seconds</label>
+              <label for="settingsIdleSeconds">待機秒数</label>
               <input id="settingsIdleSeconds" type="number" min="1" step="1" />
             </div>
             <div class="settings-field">
-              <label for="settingsMode">Mode</label>
+              <label for="settingsMode">実行方式</label>
               <select id="settingsMode">
-                <option value="command">command</option>
-                <option value="demo">demo</option>
+                <option value="command">通常実行</option>
+                <option value="demo">デモ</option>
               </select>
             </div>
             <div class="settings-field span-3">
-              <label for="settingsAgentCommand">Agent Command</label>
+              <label for="settingsAgentCommand">エージェントコマンド</label>
               <input id="settingsAgentCommand" placeholder="codex exec --full-auto --skip-git-repo-check" />
             </div>
             <div class="settings-field span-3">
-              <label for="settingsPromptFile">Prompt File</label>
+              <label for="settingsPromptFile">Prompt ファイル</label>
               <input id="settingsPromptFile" placeholder="/abs/path/to/prompt.md" />
             </div>
             <div class="settings-field span-3">
-              <label for="settingsPromptBody">Prompt Override</label>
+              <label for="settingsPromptBody">Prompt 上書き</label>
               <textarea id="settingsPromptBody" rows="8" placeholder="ここに直接 prompt を書くと file より優先します"></textarea>
             </div>
             <div class="settings-field span-3">
-              <button type="submit" class="btn-primary">Save Settings</button>
+              <button type="submit" class="btn-primary">設定を保存</button>
             </div>
           </form>
         </div>
@@ -940,10 +962,10 @@ function renderHtml(): string {
       <article class="card span-7">
         <div class="card-header">
           <div>
-            <div class="card-title">Agent Constellation</div>
-            <div class="card-subtitle">Supervisor, planner, workers, integrator を同じ deck で可視化します。</div>
+            <div class="card-title">エージェント状況</div>
+            <div class="card-subtitle">監督、計画、実行、統合の役割を同じ画面で可視化します。</div>
           </div>
-          <span id="laneMeta" class="pill">0 lanes</span>
+          <span id="laneMeta" class="pill">0 レーン</span>
         </div>
         <div class="card-body">
           <div id="agentLanes" class="lane-grid"></div>
@@ -953,12 +975,22 @@ function renderHtml(): string {
       <article class="card span-5">
         <div class="card-header">
           <div>
-            <div class="card-title">Task Board</div>
-            <div class="card-subtitle">Task amount から integration capacity を決めます。</div>
+            <div class="card-title">Task 一覧</div>
+            <div class="card-subtitle">Task の作成、編集、完了チェックをここで行います。</div>
           </div>
           <span id="taskMeta" class="pill">0 tasks</span>
         </div>
         <div class="card-body">
+          <form class="note-form" onsubmit="submitTask(event)" style="margin-bottom:16px;">
+            <input id="taskEditorId" type="hidden" />
+            <input id="taskTitle" placeholder="最初のTask、または追加したいTask名" />
+            <textarea id="taskSummary" rows="3" placeholder="Taskの説明や完了条件"></textarea>
+            <div class="control-row" style="margin-top:0;">
+              <button type="submit" class="btn-primary">Taskを保存</button>
+              <button type="button" class="btn-secondary" onclick="resetTaskEditor()">編集をやめる</button>
+            </div>
+          </form>
+          <div id="taskFlow" class="conversation-list" style="margin-bottom:16px;"></div>
           <div id="taskBoard" class="task-list"></div>
         </div>
       </article>
@@ -966,16 +998,16 @@ function renderHtml(): string {
       <article class="card span-7">
         <div class="card-header">
           <div>
-            <div class="card-title">Human Loop</div>
-            <div class="card-subtitle">質問回答は積み上げず、一段下の orchestration に吸収します。</div>
+            <div class="card-title">質問と回答</div>
+            <div class="card-subtitle">回答待ちでも止めずに進め、届いたら次ターンに反映します。</div>
           </div>
-          <span id="questionMeta" class="pill">0 pending</span>
+          <span id="questionMeta" class="pill">0 件</span>
         </div>
         <div class="card-body">
           <div id="conversationList" class="conversation-list"></div>
           <form class="note-form" onsubmit="submitNote(event)">
             <textarea id="noteText" rows="3" placeholder="次ターンに差し込みたいメモや方針を書きます"></textarea>
-            <button type="submit" class="btn-primary">Add Note</button>
+            <button type="submit" class="btn-primary">メモを追加</button>
           </form>
         </div>
       </article>
@@ -983,10 +1015,10 @@ function renderHtml(): string {
       <article class="card span-5">
         <div class="card-header">
           <div>
-            <div class="card-title">Signal Feed</div>
-            <div class="card-subtitle">Blocker / injection / event をひとつの流れで見ます。</div>
+            <div class="card-title">通知とログ</div>
+            <div class="card-subtitle">Blocker / 差し込み / イベントをひとつの流れで見ます。</div>
           </div>
-          <span id="signalMeta" class="pill">live</span>
+          <span id="signalMeta" class="pill">監視中</span>
         </div>
         <div class="card-body">
           <div id="signalList" class="signal-list"></div>
@@ -997,23 +1029,22 @@ function renderHtml(): string {
       <article class="card span-12">
         <div class="card-header">
           <div>
-            <div class="card-title">Agent Output Tail</div>
-            <div class="card-subtitle">Raw output is still available for debugging and postmortem.</div>
+            <div class="card-title">エージェント出力</div>
+            <div class="card-subtitle">デバッグや確認のために生の出力も残します。</div>
           </div>
-          <span class="pill">log tail</span>
+          <span class="pill">出力ログ</span>
         </div>
-        <pre id="agentLog">(loading)</pre>
+        <pre id="agentLog">読み込み中...</pre>
       </article>
     </section>
   </div>
 
   <script>
-    let thinkingFrames = ['Ralph is thinking...'];
+    let thinkingFrames = ['Ralph が考えています...'];
     let thinkingIndex = 0;
     let thinkingSwapTimer = null;
     let flashTimer = null;
     let settingsDirty = false;
-
     function escapeHtml(value) {
       return String(value)
         .replaceAll('&', '&amp;')
@@ -1037,9 +1068,30 @@ function renderHtml(): string {
       }
     }
 
+    function lifecycleLabel(value) {
+      if (value === 'starting') return '開始中';
+      if (value === 'running') return '実行中';
+      if (value === 'paused') return '一時停止';
+      if (value === 'pause_requested') return '停止待ち';
+      if (value === 'completed') return '完了';
+      if (value === 'aborted') return '中断';
+      if (value === 'failed') return '失敗';
+      return '待機';
+    }
+
+    function sourceLabel(value) {
+      if (value === 'web') return 'サイト';
+      if (value === 'discord') return 'Discord';
+      if (value === 'cli') return 'CLI';
+      if (value === 'agent') return 'エージェント';
+      if (value === 'file') return 'ファイル';
+      if (value === 'system') return 'システム';
+      return value || 'システム';
+    }
+
     function setThinkingFrames(frames) {
       const nextFrames = (frames || []).filter(Boolean);
-      const normalized = nextFrames.length > 0 ? nextFrames : ['Ralph is thinking...'];
+      const normalized = nextFrames.length > 0 ? nextFrames : ['Ralph が考えています...'];
       if (JSON.stringify(normalized) === JSON.stringify(thinkingFrames)) {
         return;
       }
@@ -1080,8 +1132,9 @@ function renderHtml(): string {
       });
 
       if (!response.ok) {
-        alert(await response.text());
-        return;
+        const message = await response.text();
+        showFlash(message || '操作に失敗しました', 'error');
+        return null;
       }
 
       const data = await response.json().catch(() => ({}));
@@ -1107,12 +1160,15 @@ function renderHtml(): string {
 
     async function startRun() {
       const result = await postAction('/api/start');
-      showFlash(result?.message || 'run requested', result?.started ? 'success' : 'warning');
+      if (!result) {
+        return;
+      }
+      showFlash(result?.message || '実行を要求しました', result?.started ? 'success' : 'warning');
     }
 
     async function saveSettings(event) {
       event.preventDefault();
-      await postAction('/api/settings', {
+      const result = await postAction('/api/settings', {
         taskName: document.getElementById('settingsTaskName').value.trim(),
         maxIterations: Number.parseInt(document.getElementById('settingsMaxIterations').value, 10),
         idleSeconds: Number.parseInt(document.getElementById('settingsIdleSeconds').value, 10),
@@ -1121,16 +1177,23 @@ function renderHtml(): string {
         promptFile: document.getElementById('settingsPromptFile').value.trim(),
         promptBody: document.getElementById('settingsPromptBody').value,
       });
+      if (!result) {
+        return;
+      }
       settingsDirty = false;
-      showFlash('runtime settings updated', 'success');
+      showFlash('実行設定を保存しました', 'success');
     }
 
     async function submitAnswer(questionId) {
       const el = document.getElementById('answer-' + questionId);
       const answer = el.value.trim();
       if (!answer) return;
-      await postAction('/api/answer', { questionId, answer });
+      const result = await postAction('/api/answer', { questionId, answer });
+      if (!result) {
+        return;
+      }
       el.value = '';
+      showFlash('回答を保存しました', 'success');
     }
 
     async function submitNote(event) {
@@ -1138,72 +1201,185 @@ function renderHtml(): string {
       const el = document.getElementById('noteText');
       const note = el.value.trim();
       if (!note) return;
-      await postAction('/api/note', { note });
+      const result = await postAction('/api/note', { note });
+      if (!result) {
+        return;
+      }
       el.value = '';
+      showFlash('メモを追加しました', 'success');
+    }
+
+    function resetTaskEditor() {
+      document.getElementById('taskEditorId').value = '';
+      document.getElementById('taskTitle').value = '';
+      document.getElementById('taskSummary').value = '';
+    }
+
+    function beginTaskEdit(taskId, title, summary) {
+      document.getElementById('taskEditorId').value = taskId;
+      document.getElementById('taskTitle').value = title;
+      document.getElementById('taskSummary').value = summary || '';
+      showFlash(taskId + ' を編集中です', 'info');
+    }
+
+    async function submitTask(event) {
+      event.preventDefault();
+      const taskId = document.getElementById('taskEditorId').value.trim();
+      const title = document.getElementById('taskTitle').value.trim();
+      const summary = document.getElementById('taskSummary').value.trim();
+      if (!title) {
+        showFlash('Task名を入力してください', 'warning');
+        return;
+      }
+
+      if (taskId) {
+        const result = await postAction('/api/task/update', { taskId, title, summary });
+        if (!result) {
+          return;
+        }
+        showFlash(taskId + ' を更新しました', 'success');
+      } else {
+        const result = await postAction('/api/task/create', { title, summary });
+        if (!result) {
+          return;
+        }
+        showFlash('Task を追加しました', 'success');
+      }
+
+      resetTaskEditor();
+    }
+
+    async function completeTask(taskId) {
+      const result = await postAction('/api/task/complete', { taskId });
+      if (!result) {
+        return;
+      }
+      showFlash(taskId + ' に完了チェックを付けました', 'success');
+    }
+
+    async function reopenTask(taskId) {
+      const result = await postAction('/api/task/reopen', { taskId });
+      if (!result) {
+        return;
+      }
+      showFlash(taskId + ' を未完了に戻しました', 'warning');
     }
 
     function renderAgentLanes(items) {
       const el = document.getElementById('agentLanes');
-      document.getElementById('laneMeta').textContent = items.length + ' lanes';
+      document.getElementById('laneMeta').textContent = items.length + ' レーン';
 
       if (items.length === 0) {
-        el.innerHTML = '<div class="empty">agent lane はまだありません</div>';
+        el.innerHTML = '<div class="empty">エージェントレーンはまだありません</div>';
         return;
       }
 
       el.innerHTML = items.map((item) => {
         const fill = Math.max(8, Math.min(100, item.capacity > 0 ? (item.load / item.capacity) * 100 : 0));
+        const roleLabel =
+          item.role === 'supervisor' ? '監督'
+          : item.role === 'planner' ? '計画'
+          : item.role === 'integrator' ? '統合'
+          : '実行';
+        const stateLabel =
+          item.status === 'thinking' ? '思考中'
+          : item.status === 'waiting' ? '待機中'
+          : item.status === 'blocked' ? '停止中'
+          : item.status === 'done' ? '完了'
+          : '待機';
         return \`
           <article class="lane-card">
             <div class="lane-head">
               <div>
                 <div class="lane-name">\${escapeHtml(item.name)}</div>
-                <div class="lane-role">\${escapeHtml(item.role)}</div>
+                <div class="lane-role">\${escapeHtml(roleLabel)}</div>
               </div>
               <div class="lane-state \${escapeHtml(item.status)}">
                 <span class="dot"></span>
-                <span>\${escapeHtml(item.status)}</span>
+                <span>\${escapeHtml(stateLabel)}</span>
               </div>
             </div>
             <div class="lane-focus">\${escapeHtml(item.focus)}</div>
             <div class="lane-bar"><span style="width:\${fill}%"></span></div>
-            <div class="lane-state">\${escapeHtml(item.load)} / \${escapeHtml(item.capacity)} load</div>
+            <div class="lane-state">\${escapeHtml(item.load)} / \${escapeHtml(item.capacity)} 稼働</div>
             <div class="lane-tasks">
               \${item.taskIds.length > 0
                 ? item.taskIds.map((taskId) => '<span class="lane-task">' + escapeHtml(taskId) + '</span>').join('')
-                : '<span class="lane-task">idle slot</span>'}
+                : '<span class="lane-task">待機中</span>'}
             </div>
           </article>
         \`;
       }).join('');
     }
 
-    function renderTaskBoard(items) {
+    function renderTaskFlow(currentTask, nextTask) {
+      const el = document.getElementById('taskFlow');
+      const cards = [];
+
+      if (currentTask) {
+        cards.push(\`
+          <article class="conversation-item question">
+            <div class="conversation-id">現在のTask / \${escapeHtml(currentTask.id)}</div>
+            <div class="conversation-text">\${escapeHtml(currentTask.title)}</div>
+            <div class="conversation-meta">\${escapeHtml(currentTask.summary || currentTask.title)}</div>
+          </article>
+        \`);
+      }
+
+      if (nextTask) {
+        cards.push(\`
+          <article class="conversation-item answer">
+            <div class="conversation-id">次のTask / \${escapeHtml(nextTask.id)}</div>
+            <div class="conversation-text">\${escapeHtml(nextTask.title)}</div>
+            <div class="conversation-meta">\${escapeHtml(nextTask.summary || nextTask.title)}</div>
+          </article>
+        \`);
+      }
+
+      el.innerHTML = cards.length > 0
+        ? cards.join('')
+        : '<div class="empty">まだTaskがありません。最初のTaskを作成してください。</div>';
+    }
+
+    function renderTaskBoard(items, currentTask, nextTask) {
       const el = document.getElementById('taskBoard');
-      document.getElementById('taskMeta').textContent = items.length + ' tasks';
+      document.getElementById('taskMeta').textContent = items.length + ' 件';
 
       if (items.length === 0) {
-        el.innerHTML = '<div class="empty">task board はまだ空です</div>';
+        el.innerHTML = '<div class="empty">Task はまだありません</div>';
         return;
       }
 
       el.innerHTML = items.map((item) => \`
-        <article class="task-item">
+        <article class="task-item \${currentTask && currentTask.id === item.id ? 'current' : nextTask && nextTask.id === item.id ? 'next' : ''}">
           <div class="task-row">
             <div>
               <div class="task-id">\${escapeHtml(item.id)}</div>
               <div class="task-title">\${escapeHtml(item.title)}</div>
             </div>
-            <div class="task-status \${escapeHtml(item.displayStatus)}">\${escapeHtml(item.displayStatus)}</div>
+            <div class="task-status \${escapeHtml(item.displayStatus)}">\${escapeHtml(item.displayStatus === 'active' ? '現在' : item.displayStatus === 'queued' ? '待機' : item.displayStatus === 'completed' ? '完了' : '停止')}</div>
           </div>
           <div class="task-summary">\${escapeHtml(item.summary || item.title)}</div>
           <div class="task-meta">
-            <span class="priority-badge \${escapeHtml(item.priority)}">\${escapeHtml(item.priority)}</span>
-            <span class="tag">source: \${escapeHtml(item.source)}</span>
-            \${item.laneId ? '<span class="tag">lane: ' + escapeHtml(item.laneId) + '</span>' : ''}
+            <span class="priority-badge \${escapeHtml(item.priority)}">\${escapeHtml(item.priority === 'critical' ? '最重要' : item.priority === 'high' ? '高' : item.priority === 'medium' ? '中' : '低')}</span>
+            <span class="tag">作成元: \${escapeHtml(item.source)}</span>
+            \${currentTask && currentTask.id === item.id ? '<span class="tag">今やるTask</span>' : ''}
+            \${nextTask && nextTask.id === item.id ? '<span class="tag">次にやるTask</span>' : ''}
             \${item.acceptanceCriteria && item.acceptanceCriteria.length > 0
-              ? '<span class="tag">' + escapeHtml(item.acceptanceCriteria.length) + ' criteria</span>'
+              ? '<span class="tag">条件 ' + escapeHtml(item.acceptanceCriteria.length) + ' 件</span>'
               : ''}
+          </div>
+          <div class="task-actions">
+            <button
+              type="button"
+              class="btn-secondary task-edit-button"
+              data-task-id="\${escapeHtml(item.id)}"
+              data-task-title="\${escapeHtml(item.title)}"
+              data-task-summary="\${escapeHtml(item.summary || '')}"
+            >編集</button>
+            \${item.displayStatus === 'completed'
+              ? '<button type="button" class="btn-warn task-reopen-button" data-task-id="' + escapeHtml(item.id) + '">未完了に戻す</button>'
+              : '<button type="button" class="btn-primary task-complete-button" data-task-id="' + escapeHtml(item.id) + '">完了チェック</button>'}
           </div>
         </article>
       \`).join('');
@@ -1211,7 +1387,7 @@ function renderHtml(): string {
 
     function renderConversation(pending, answered) {
       const el = document.getElementById('conversationList');
-      document.getElementById('questionMeta').textContent = pending.length + ' pending';
+      document.getElementById('questionMeta').textContent = pending.length + ' 件待ち';
 
       if (pending.length === 0 && answered.length === 0) {
         el.innerHTML = '<div class="empty">質問はまだありません</div>';
@@ -1220,25 +1396,25 @@ function renderHtml(): string {
 
       const pendingHtml = pending.map((item) => \`
         <article class="conversation-item question">
-          <div class="conversation-id">\${escapeHtml(item.id)} / pending</div>
+          <div class="conversation-id">\${escapeHtml(item.id)} / 回答待ち</div>
           <div class="conversation-text">\${escapeHtml(item.text)}</div>
           <div class="conversation-meta">\${formatTime(item.createdAt)}</div>
           <form class="answer-form" onsubmit="event.preventDefault(); submitAnswer('\${escapeHtml(item.id)}');">
             <textarea id="answer-\${escapeHtml(item.id)}" rows="2" placeholder="回答を入力"></textarea>
-            <button type="submit" class="btn-primary">Send Answer</button>
+            <button type="submit" class="btn-primary">回答する</button>
           </form>
         </article>
       \`).join('');
 
       const answeredHtml = answered.map((item) => \`
         <article class="conversation-item question">
-          <div class="conversation-id">\${escapeHtml(item.id)} / answered</div>
+          <div class="conversation-id">\${escapeHtml(item.id)} / 回答済み</div>
           <div class="conversation-text">\${escapeHtml(item.text)}</div>
           <div class="conversation-meta">\${formatTime(item.createdAt)}</div>
         </article>
         <article class="conversation-item answer">
           <div class="conversation-id">\${escapeHtml(item.answer?.id || '')}</div>
-          <div class="conversation-text">\${escapeHtml(item.answer?.answer || '(missing)')}</div>
+          <div class="conversation-text">\${escapeHtml(item.answer?.answer || '(回答データなし)')}</div>
           <div class="conversation-meta">\${formatTime(item.answeredAt)}</div>
         </article>
       \`).join('');
@@ -1250,18 +1426,18 @@ function renderHtml(): string {
       const signalEl = document.getElementById('signalList');
       const eventEl = document.getElementById('eventList');
       document.getElementById('signalMeta').textContent =
-        blockers.length + ' blockers / ' + queue.length + ' queued';
+        blockers.length + ' 件の要対応 / ' + queue.length + ' 件の差し込み待ち';
 
       const signalParts = [];
 
       if (queue.length > 0) {
         signalParts.push(...queue.map((item) => \`
           <article class="signal-item">
-            <div class="signal-id">\${escapeHtml(item.id)} / \${escapeHtml(item.kind)}</div>
+            <div class="signal-id">\${escapeHtml(item.id)} / \${escapeHtml(item.kind === 'answer' ? '回答' : 'メモ')}</div>
             <div class="signal-text">\${escapeHtml(item.text)}</div>
             <div class="signal-tags">
-              <span class="tag">label: \${escapeHtml(item.label)}</span>
-              <span class="tag">at: \${formatTime(item.createdAt)}</span>
+              <span class="tag">対象: \${escapeHtml(item.label)}</span>
+              <span class="tag">時刻: \${formatTime(item.createdAt)}</span>
             </div>
           </article>
         \`));
@@ -1270,11 +1446,11 @@ function renderHtml(): string {
       if (blockers.length > 0) {
         signalParts.push(...blockers.map((item) => \`
           <article class="signal-item" style="border-color:rgba(255,107,107,0.22);background:rgba(255,107,107,0.08);">
-            <div class="signal-id">\${escapeHtml(item.id)} / blocker</div>
+            <div class="signal-id">\${escapeHtml(item.id)} / 要対応</div>
             <div class="signal-text">\${escapeHtml(item.text)}</div>
             <div class="signal-tags">
-              <span class="tag">source: \${escapeHtml(item.source)}</span>
-              <span class="tag">at: \${formatTime(item.createdAt)}</span>
+              <span class="tag">作成元: \${escapeHtml(item.source)}</span>
+              <span class="tag">時刻: \${formatTime(item.createdAt)}</span>
             </div>
           </article>
         \`));
@@ -1282,24 +1458,24 @@ function renderHtml(): string {
 
       signalEl.innerHTML = signalParts.length > 0
         ? signalParts.join('')
-        : '<div class="empty">signal はまだありません</div>';
+        : '<div class="empty">通知はまだありません</div>';
 
       eventEl.innerHTML = events.length > 0
         ? events.map((item) => \`
             <div class="event-item">
               <div class="event-time">\${formatTime(item.timestamp)}</div>
               <div>
-                <div class="event-type">\${escapeHtml(item.type)} / \${escapeHtml(item.level)}</div>
+                <div class="event-type">\${escapeHtml(item.type)} / \${escapeHtml(item.level === 'warning' ? '注意' : item.level === 'error' ? '異常' : '情報')}</div>
                 <div class="event-message">\${escapeHtml(item.message)}</div>
               </div>
             </div>
           \`).join('')
-        : '<div class="empty">event はまだありません</div>';
+        : '<div class="empty">イベントはまだありません</div>';
     }
 
     function renderSettings(settings) {
       document.getElementById('settingsMeta').textContent =
-        'updated by ' + escapeHtml(settings.updatedBy || 'system');
+        '更新者: ' + sourceLabel(settings.updatedBy);
 
       if (settingsDirty) {
         return;
@@ -1320,28 +1496,40 @@ function renderHtml(): string {
       const status = data.status;
 
       document.getElementById('heroTask').textContent = status.task || 'Ralph';
-      document.getElementById('heroLifecycle').textContent = status.lifecycle;
+      document.getElementById('heroLifecycle').textContent = lifecycleLabel(status.lifecycle);
       document.getElementById('heroIteration').textContent = status.iteration + ' / ' + status.maxIterations;
       document.getElementById('heroCommand').textContent = status.agentCommand || '-';
       document.getElementById('heroUpdated').textContent = formatTime(status.updatedAt);
 
       document.getElementById('statIntegration').textContent = String(status.maxIntegration);
       document.getElementById('statIntegrationMeta').textContent =
-        'task load ' + status.totalTaskCount + ' -> worker lanes ' + status.maxIntegration;
+        status.totalTaskCount + ' 件のTaskから自動計算';
       document.getElementById('statTasks').textContent = String(status.totalTaskCount);
       document.getElementById('statTasksMeta').textContent =
-        status.activeTaskCount + ' active / ' + status.queuedTaskCount + ' queued / ' + status.completedTaskCount + ' completed';
+        status.activeTaskCount + ' 件進行中 / ' + status.queuedTaskCount + ' 件待機 / ' + status.completedTaskCount + ' 件完了';
       document.getElementById('statQuestions').textContent = String(status.pendingQuestionCount);
       document.getElementById('statQuestionsMeta').textContent =
-        status.answeredQuestionCount + ' answered / ' + status.blockerCount + ' blockers';
+        status.answeredQuestionCount + ' 件回答済み / ' + status.blockerCount + ' 件の要対応';
       document.getElementById('statQueue').textContent = String(status.pendingInjectionCount);
       document.getElementById('statQueueMeta').textContent =
-        'phase: ' + (status.phase || '-') + ' / mode: ' + (status.mode || '-');
+        '状態: ' + (
+          status.phase === 'queued' ? '実行予約'
+          : status.phase === 'starting' ? '開始中'
+          : status.phase === 'running' ? '実行中'
+          : status.phase === 'paused' ? '一時停止'
+          : status.phase === 'completed' ? '完了'
+          : status.phase === 'aborted' ? '中断'
+          : status.phase === 'failed' ? '失敗'
+          : status.phase === 'interrupted' ? '中断復帰'
+          : status.phase === 'max_iterations_reached' ? '思考回数上限'
+          : '待機中'
+        ) + ' / 実行: ' + (status.mode === 'demo' ? 'デモ' : '通常実行');
 
-      setThinkingFrames(data.thinkingFrames || [status.thinkingText || status.currentStatusText || 'Ralph is thinking...']);
+      setThinkingFrames(data.thinkingFrames || [status.thinkingText || status.currentStatusText || 'Ralph が考えています...']);
       renderSettings(data.settings);
       renderAgentLanes(data.agentLanes || []);
-      renderTaskBoard(data.taskBoard || []);
+      renderTaskFlow(data.currentTask, data.nextTask);
+      renderTaskBoard(data.taskBoard || [], data.currentTask, data.nextTask);
       renderConversation(data.pendingQuestions || [], data.answeredQuestions || []);
       renderSignals(data.promptInjectionQueue || [], data.blockers || [], data.recentEvents || []);
       document.getElementById('agentLog').textContent = (data.agentLogTail || []).join('\\n');
@@ -1361,6 +1549,34 @@ function renderHtml(): string {
       element.addEventListener('change', () => {
         settingsDirty = true;
       });
+    });
+
+    document.getElementById('taskBoard').addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      const editButton = target.closest('.task-edit-button');
+      if (editButton instanceof HTMLElement) {
+        beginTaskEdit(
+          editButton.dataset.taskId || '',
+          editButton.dataset.taskTitle || '',
+          editButton.dataset.taskSummary || '',
+        );
+        return;
+      }
+
+      const completeButton = target.closest('.task-complete-button');
+      if (completeButton instanceof HTMLElement && completeButton.dataset.taskId) {
+        void completeTask(completeButton.dataset.taskId);
+        return;
+      }
+
+      const reopenButton = target.closest('.task-reopen-button');
+      if (reopenButton instanceof HTMLElement && reopenButton.dataset.taskId) {
+        void reopenTask(reopenButton.dataset.taskId);
+      }
     });
   </script>
 </body>
@@ -1401,13 +1617,20 @@ export function startPanelServer(
       const body = await readJsonBody(request);
       const data = await actions.updateRuntimeSettings(
         {
-          taskName: body.taskName,
-          agentCommand: body.agentCommand,
-          promptFile: body.promptFile,
-          promptBody: body.promptBody,
-          maxIterations: body.maxIterations ? Number.parseInt(body.maxIterations, 10) : undefined,
-          idleSeconds: body.idleSeconds ? Number.parseInt(body.idleSeconds, 10) : undefined,
-          mode: body.mode === 'demo' ? 'demo' : body.mode === 'command' ? 'command' : undefined,
+          taskName: typeof body.taskName === 'string' ? body.taskName : undefined,
+          agentCommand: typeof body.agentCommand === 'string' ? body.agentCommand : undefined,
+          promptFile: typeof body.promptFile === 'string' ? body.promptFile : undefined,
+          promptBody: typeof body.promptBody === 'string' ? body.promptBody : undefined,
+          maxIterations:
+            body.maxIterations !== undefined ? Number.parseInt(String(body.maxIterations), 10) : undefined,
+          idleSeconds:
+            body.idleSeconds !== undefined ? Number.parseInt(String(body.idleSeconds), 10) : undefined,
+          mode:
+            body.mode === 'demo'
+              ? 'demo'
+              : body.mode === 'command'
+                ? 'command'
+                : undefined,
         },
         { source: 'web' },
       );
@@ -1440,9 +1663,9 @@ export function startPanelServer(
 
     if (request.method === 'POST' && url.pathname === '/api/answer') {
       const body = await readJsonBody(request);
-      if (!body.questionId || !body.answer) {
+      if (typeof body.questionId !== 'string' || typeof body.answer !== 'string' || !body.questionId || !body.answer) {
         response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
-        response.end('questionId and answer are required');
+        response.end('質問IDと回答の両方が必要です');
         return;
       }
 
@@ -1454,9 +1677,9 @@ export function startPanelServer(
 
     if (request.method === 'POST' && url.pathname === '/api/note') {
       const body = await readJsonBody(request);
-      if (!body.note) {
+      if (typeof body.note !== 'string' || !body.note) {
         response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
-        response.end('note is required');
+        response.end('メモを入力してください');
         return;
       }
 
@@ -1466,8 +1689,95 @@ export function startPanelServer(
       return;
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/task/create') {
+      try {
+        const body = await readJsonBody(request);
+        const data = await actions.createTask(
+          {
+            title: typeof body.title === 'string' ? body.title : undefined,
+            summary: typeof body.summary === 'string' ? body.summary : undefined,
+          },
+          { source: 'web' },
+        );
+        response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify(data));
+      } catch (error) {
+        response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end(error instanceof Error ? error.message : 'Task を作成できませんでした');
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/task/update') {
+      const body = await readJsonBody(request);
+      if (typeof body.taskId !== 'string' || !body.taskId) {
+        response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('更新対象のTask IDが必要です');
+        return;
+      }
+
+      const data = await actions.updateTask(
+        body.taskId,
+        {
+          title: typeof body.title === 'string' ? body.title : undefined,
+          summary: typeof body.summary === 'string' ? body.summary : undefined,
+        },
+        { source: 'web' },
+      );
+
+      if (!data) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('指定した Task が見つかりません');
+        return;
+      }
+
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify(data));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/task/complete') {
+      const body = await readJsonBody(request);
+      if (typeof body.taskId !== 'string' || !body.taskId) {
+        response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('完了にするTask IDが必要です');
+        return;
+      }
+
+      const data = await actions.completeTask(body.taskId, { source: 'web' });
+      if (!data) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('指定した Task が見つかりません');
+        return;
+      }
+
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify(data));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/task/reopen') {
+      const body = await readJsonBody(request);
+      if (typeof body.taskId !== 'string' || !body.taskId) {
+        response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('戻すTask IDが必要です');
+        return;
+      }
+
+      const data = await actions.reopenTask(body.taskId, { source: 'web' });
+      if (!data) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('指定した Task が見つかりません');
+        return;
+      }
+
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify(data));
+      return;
+    }
+
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    response.end('not found');
+    response.end('ページが見つかりません');
   });
 
   server.listen(config.panelPort, config.panelHost, () => {

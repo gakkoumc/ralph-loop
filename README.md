@@ -1,14 +1,16 @@
 # RalphLoop
 
-Codex を外側から監督しつつ、`ralph` を主コマンドとして扱う orchestration-first な RalphLoop です。
+Codex を外側から監督しつつ、`ralph` を主コマンドとして扱う、Task中心の orchestration-first RalphLoop です。
 
-このリポジトリの目的は、`ralph.sh` ベースの最小 loop を、task board / agent lanes / MaxIntegration を持つ運用ツールへ置き換えることです。
+このリポジトリの目的は、`ralph.sh` ベースの最小 loop を、Task board / agent lanes / MaxIntegration を持つ運用ツールへ置き換えることです。
 
 - `ralph` を主コマンドとして `start / run / start-run / configure / panel / supervisor / discord / demo / status` を扱える
 - `prd.json` の task 量から `MaxIntegration` を自動決定する
 - panel は単なる status 画面ではなく、agent constellation と task board を可視化する
 - `Thinking Stream` は同じ行でテキストが切り替わるモーションになり、同文の待機メッセージを積まない
 - サイトと Discord から run の開始、task / prompt / maxIterations / idleSeconds の更新ができる
+- 最初のTask作成、Task追加、Task編集、完了チェック、未完了への戻しがサイトと Discord からできる
+- run は「現在のTaskを1つ終えて、次のTaskを次回に渡す」前提で進められる
 - 質問が未回答でも停止せず、進められる作業を継続する
 - 回答や手動メモは次ターン prompt 末尾へ一度だけ注入する
 - Web panel と Discord bridge は同じ state / action layer を共有する
@@ -72,7 +74,7 @@ npm run test
 - `npm run dev` と `npm run app:start` は `ralph start` の thin wrapper です
 - `./ralph run` は service 起動と同時に run を 1 回キックします
 - `./ralph start-run` は既に常駐している service に対して queued run を置く用途です
-- `./ralph configure` は runtime settings だけを更新して終了します
+- `./ralph configure` は実行設定だけを更新して終了します
 - 依存パッケージは使っていないため、通常は `npm install` 不要です
 - TypeScript は Node 24 の `--experimental-strip-types` で直接実行しています
 
@@ -80,25 +82,24 @@ npm run test
 
 1 画面で以下を扱えます。
 
-- run status / lifecycle / iteration
+- 実行状態 / 反復回数 / 思考中メッセージ
 - `MaxIntegration`
-- task board
-- agent constellation
+- 現在のTask / 次のTask
+- Task ボード
+- Task の新規作成 / 編集 / 完了チェック / 未完了へ戻す
+- エージェントの役割表示
 - `Thinking Stream`
-- runtime control
-- start failure / settings save の flash feedback
-- pending question 一覧
-- answered question 一覧
-- blocker 一覧
-- prompt injection queue
-- recent events
-- agent output tail
-- `Refresh`
-- `Pause`
-- `Resume`
-- `Abort`
-- question への answer 入力
-- 次ターン用の手動 note 注入
+- 実行設定の保存
+- 実行開始 / 一時停止 / 再開 / 中断
+- 保存失敗や開始失敗のフィードバック表示
+- 回答待ちの質問一覧
+- 回答済みの履歴
+- 要対応一覧
+- 次ターン差し込みキュー
+- 直近イベント
+- エージェント出力ログ
+- 質問への回答入力
+- 次ターン用の手動メモ注入
 
 ## Discord bridge
 
@@ -112,12 +113,18 @@ Discord token を入れると、gateway bot として動作します。
 - `[[DONE]]`
 
 操作:
+- `/help`
 - `/start`
 - `/status`
 - `/config`
 - `/pause`
 - `/resume`
 - `/abort`
+- `/tasks`
+- `/task-add タイトル | 説明`
+- `/task-edit T-001 タイトル | 説明`
+- `/task-done T-001`
+- `/task-reopen T-001`
 - `/answer Q-001 staging を優先してください`
 - `/note 次ターンは panel 完成を優先`
 - `/set-task repo-wide rebuild`
@@ -126,7 +133,7 @@ Discord token を入れると、gateway bot として動作します。
 - `/set-mode command`
 - `/set-agent codex exec --full-auto --skip-git-repo-check`
 - `/set-prompt-file /abs/path/to/prompt.md`
-- `/set-prompt ここに prompt override を書く`
+- `/set-prompt ここに prompt 上書きを書く`
 - `/clear-prompt`
 
 優先通知先:
@@ -136,13 +143,14 @@ Discord token を入れると、gateway bot として動作します。
 重要:
 - 現状の Discord 操作は「登録済み slash command」ではなく、`/status` 形式の message command です
 - temporary tool としての MVP を優先し、重い依存を避けています
+- Web を開かなくても、最初のTask作成から次Taskへの進行まで Discord 上で完結できます
 
 ## 回答待ちでも止めないポリシー
 
 この実装の重要な運用ルールです。
 
 1. agent が `[[QUESTION]]` を出しても supervisor は停止しません
-2. 質問は `state/questions.json` に pending として保存されます
+2. 質問は `state/questions.json` に回答待ちとして保存されます
 3. Web / Discord / ローカルファイルから回答できます
 4. 回答は `state/answers.json` に保存されます
 5. 次ターン prompt の末尾に以下形式で一度だけ注入されます
@@ -158,6 +166,18 @@ Discord token を入れると、gateway bot として動作します。
 追加の運用メモが届きました:
 - N-001: まず panel を仕上げてください
 ```
+
+## Taskの進め方
+
+このツールは「Taskを全部一気に潰す」のではなく、「現在のTaskを1つ終えたら、次のTaskは次の run で進める」運用を前提にしています。
+
+1. 最初のTaskを panel または Discord で作成します
+2. Ralph は現在のTaskを中心に作業します
+3. 完了したら Task にチェックを付けます
+4. 画面には自動で「次のTask」が出ます
+5. 次の run や次のチャットでは、その Task を起点に進めます
+
+これにより、長い作業でも「今どこをやっているか」と「次に何をやるか」が常に見えたままになります。
 
 ## Structured markers
 
@@ -175,8 +195,8 @@ agent 出力から以下を検出します。
 処理内容:
 - `STATUS`: 現在状態更新 + log 追記
 - `THINKING`: `Thinking Stream` を更新
-- `QUESTION`: pending question 登録 + 通知 + Web 表示
-- `BLOCKER`: blocker 登録 + 通知 + Web 表示
+- `QUESTION`: 回答待ち質問の登録 + 通知 + Web 表示
+- `BLOCKER`: 要対応の登録 + 通知 + Web 表示
 - `TASK`: task board 更新
 - `DONE`: run 完了更新
 

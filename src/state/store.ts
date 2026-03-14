@@ -202,7 +202,6 @@ export class FileStateStore {
     this.writeAnswers([]);
     this.writeManualNotes([]);
     this.writeBlockers([]);
-    this.writeTasks([]);
     this.writeInboxOffsets({ answersLineOffset: 0, notesLineOffset: 0 });
     writeFileSync(this.eventsPath, '', 'utf8');
     writeFileSync(this.agentOutputPath, '', 'utf8');

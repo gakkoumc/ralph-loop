@@ -52,26 +52,26 @@ export class CompositeNotifier implements Notifier {
 
 export class ConsoleNotifier implements Notifier {
   async notifyRunStarted(status: RunStatus): Promise<void> {
-    console.log(`[run.started] ${status.task} / mode=${status.mode} / iteration=${status.iteration}`);
+    console.log(`[実行開始] ${status.task} / 実行=${status.mode} / 反復=${status.iteration}`);
   }
 
   async notifyStatus(message: string): Promise<void> {
-    console.log(`[status] ${message}`);
+    console.log(`[状態] ${message}`);
   }
 
   async notifyQuestion(question: QuestionRecord): Promise<void> {
-    console.log(`[question] ${question.id}: ${question.text}`);
+    console.log(`[確認] ${question.id}: ${question.text}`);
   }
 
   async notifyBlocker(blocker: BlockerRecord): Promise<void> {
-    console.log(`[blocker] ${blocker.id}: ${blocker.text}`);
+    console.log(`[要対応] ${blocker.id}: ${blocker.text}`);
   }
 
   async notifyDone(message: string): Promise<void> {
-    console.log(`[done] ${message}`);
+    console.log(`[完了] ${message}`);
   }
 
   async notifyRunAborted(reason: string): Promise<void> {
-    console.log(`[aborted] ${reason}`);
+    console.log(`[中断] ${reason}`);
   }
 }

@@ -91,9 +91,11 @@ export interface TaskRecord {
   title: string;
   summary: string;
   priority: TaskPriority;
+  sortIndex: number;
   status: StoredTaskStatus;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
   source: string;
   acceptanceCriteria: string[];
   notes?: string;
@@ -159,6 +161,8 @@ export interface RuntimeSettings {
 export interface DashboardData {
   status: RunStatus;
   settings: RuntimeSettings;
+  currentTask?: TaskBoardItem;
+  nextTask?: TaskBoardItem;
   pendingQuestions: QuestionRecord[];
   answeredQuestions: Array<QuestionRecord & { answer?: AnswerRecord }>;
   blockers: BlockerRecord[];
