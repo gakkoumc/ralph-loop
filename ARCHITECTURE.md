@@ -11,6 +11,7 @@
 - UI 層に状態遷移を埋め込まない
 - Task 量から `MaxIntegration` を決める
 - 1 run では原則 1 Task を完了させ、次のTaskは次回 run で進める
+- 初回は空の Task board から始め、サンプルデータは自動で読み込まない
 
 ## レイヤ
 
@@ -97,11 +98,13 @@ Codex 出力から `[[STATUS]]`, `[[THINKING]]`, `[[TASK]]` などの structured
 - Task board 表示
 - 現在のTask / 次のTask 表示
 - Task の作成 / 編集 / 完了 / 差し戻し
+- 初回ガイド表示
 - runtime settings 編集
 - start run
 - answer
 - note injection
 - pause / resume / abort
+- Basic 認証
 
 ### `src/discord`
 
@@ -109,8 +112,10 @@ Codex 出力から `[[STATUS]]`, `[[THINKING]]`, `[[TASK]]` などの structured
 
 - 通知送信
 - `/status` などの message command 受信
+- slash command 登録と受信
 - `/start`, `/config`, `/set-*`, `/task-*`, `/tasks` command 受信
 - answer / note / control を action layer に委譲
+- allowlist による利用者制限
 
 ## prompt injection の流れ
 

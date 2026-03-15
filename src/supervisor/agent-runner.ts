@@ -3,6 +3,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AppConfig } from '../config.ts';
 import { runMockAgent } from '../demo/mock-agent.ts';
 
+const ABORT_KILL_TIMEOUT_MS = 1500;
+
 export interface AgentRunResult {
   output: string;
   exitCode: number | null;
@@ -11,6 +13,7 @@ export interface AgentRunResult {
 
 export class AgentRunner {
   private currentChild: ChildProcessWithoutNullStreams | null = null;
+  private abortTimer: NodeJS.Timeout | null = null;
   private readonly config: AppConfig;
 
   constructor(config: AppConfig) {
@@ -30,6 +33,7 @@ export class AgentRunner {
     return new Promise((resolve, reject) => {
       const child = spawn(this.config.agentCommand, {
         cwd: this.config.rootDir,
+        detached: process.platform !== 'win32',
         shell: true,
         stdio: 'pipe',
         env: {
@@ -50,8 +54,19 @@ export class AgentRunner {
       child.stderr.on('data', (chunk: string) => {
         output += chunk;
       });
-      child.on('error', reject);
+      child.on('error', (error) => {
+        if (this.abortTimer) {
+          clearTimeout(this.abortTimer);
+          this.abortTimer = null;
+        }
+        this.currentChild = null;
+        reject(error);
+      });
       child.on('close', (exitCode, signal) => {
+        if (this.abortTimer) {
+          clearTimeout(this.abortTimer);
+          this.abortTimer = null;
+        }
         this.currentChild = null;
         resolve({ output, exitCode, signal });
       });
@@ -66,7 +81,32 @@ export class AgentRunner {
       return;
     }
 
-    this.currentChild.kill('SIGTERM');
-    this.currentChild = null;
+    this.killCurrent('SIGTERM');
+    if (this.abortTimer) {
+      clearTimeout(this.abortTimer);
+    }
+    this.abortTimer = setTimeout(() => {
+      if (!this.currentChild || this.currentChild.killed) {
+        return;
+      }
+      this.killCurrent('SIGKILL');
+    }, ABORT_KILL_TIMEOUT_MS);
+  }
+
+  private killCurrent(signal: NodeJS.Signals): void {
+    if (!this.currentChild) {
+      return;
+    }
+
+    if (process.platform !== 'win32' && typeof this.currentChild.pid === 'number') {
+      try {
+        process.kill(-this.currentChild.pid, signal);
+        return;
+      } catch {
+        // Fall back to the direct child if the process group is already gone.
+      }
+    }
+
+    this.currentChild.kill(signal);
   }
 }

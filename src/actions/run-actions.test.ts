@@ -21,11 +21,17 @@ function makeConfig(rootDir: string): AppConfig {
     idleSeconds: 1,
     panelPort: 8787,
     panelHost: '127.0.0.1',
+    panelUsername: '',
+    panelPassword: '',
+    allowRuntimeAgentCommandOverride: false,
     taskName: 'test',
     discordToken: '',
     discordNotifyChannelId: '',
     discordDmUserId: '',
     discordAppName: 'RalphLoop',
+    discordAllowedUserIds: [],
+    discordGuildId: '',
+    discordApplicationId: '',
     discordEnabled: false,
   };
 }
@@ -89,6 +95,26 @@ test('RunActions derives MaxIntegration from prd task volume', async () => {
   assert.equal(dashboard.status.totalTaskCount, 4);
   assert.equal(dashboard.status.maxIntegration, 3);
   assert.equal(dashboard.agentLanes.filter((lane) => lane.role === 'worker').length, 3);
+
+  rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('RunActions starts empty when no task catalog is configured', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'ralph-loop-'));
+  mkdirSync(join(rootDir, 'prompts'), { recursive: true });
+  writeFileSync(join(rootDir, 'prompts', 'supervisor.md'), 'base prompt', { encoding: 'utf8' });
+
+  const config = makeConfig(rootDir);
+  config.taskCatalogFile = '';
+  const store = new FileStateStore(config);
+  await store.ensureInitialized();
+  const actions = new RunActions(store, config);
+
+  const dashboard = await actions.getDashboardData();
+
+  assert.equal(dashboard.taskBoard.length, 0);
+  assert.equal(dashboard.currentTask, undefined);
+  assert.equal(dashboard.nextTask, undefined);
 
   rmSync(rootDir, { recursive: true, force: true });
 });
@@ -261,6 +287,16 @@ test('RunActions creates, updates, completes, and reopens tasks while tracking c
   assert.equal(updated?.title, '追加Task更新');
   assert.equal(updated?.summary, '説明も更新');
 
+  await actions.moveTask(created.id, 'front', { source: 'test' });
+  const afterMoveFront = await actions.getDashboardData();
+  assert.equal(afterMoveFront.currentTask?.id, created.id);
+  assert.equal(afterMoveFront.nextTask?.id, 'US-001');
+
+  await actions.moveTask(created.id, 'back', { source: 'test' });
+  const afterMoveBack = await actions.getDashboardData();
+  assert.equal(afterMoveBack.currentTask?.id, 'US-001');
+  assert.equal(afterMoveBack.nextTask?.id, 'US-002');
+
   await actions.completeTask('US-001', { source: 'test' });
   const afterComplete = await actions.getDashboardData();
   assert.equal(afterComplete.currentTask?.id, 'US-002');
@@ -271,6 +307,114 @@ test('RunActions creates, updates, completes, and reopens tasks while tracking c
   assert.equal(afterReopen.currentTask?.id, 'US-001');
   assert.equal(afterReopen.nextTask?.id, 'US-002');
   assert.equal(afterReopen.taskBoard.find((task) => task.id === created.id)?.title, '追加Task更新');
+
+  rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('RunActions rejects remote agentCommand overrides by default but allows local CLI changes', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'ralph-loop-'));
+  mkdirSync(join(rootDir, 'prompts'), { recursive: true });
+  writeFileSync(join(rootDir, 'prompts', 'supervisor.md'), 'base prompt', { encoding: 'utf8' });
+
+  const config = makeConfig(rootDir);
+  const store = new FileStateStore(config);
+  await store.ensureInitialized();
+  const actions = new RunActions(store, config);
+
+  await assert.rejects(
+    actions.updateRuntimeSettings(
+      { agentCommand: 'dangerous remote override' },
+      { source: 'web' },
+    ),
+    /agentCommand は起動時設定に固定されています/,
+  );
+
+  const updated = await actions.updateRuntimeSettings(
+    { agentCommand: 'safe local override' },
+    { source: 'cli' },
+  );
+
+  assert.equal(updated.agentCommand, 'safe local override');
+  assert.equal(config.agentCommand, 'safe local override');
+
+  rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('RunActions preserves manual seeded task edits across task catalog synchronization', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'ralph-loop-'));
+  mkdirSync(join(rootDir, 'prompts'), { recursive: true });
+  writeFileSync(join(rootDir, 'prompts', 'supervisor.md'), 'base prompt', { encoding: 'utf8' });
+  writeFileSync(
+    join(rootDir, 'prd.json'),
+    JSON.stringify(
+      {
+        userStories: [
+          { id: 'US-001', title: 'seed title', priority: 1, passes: false },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = makeConfig(rootDir);
+  const store = new FileStateStore(config);
+  await store.ensureInitialized();
+  const actions = new RunActions(store, config);
+
+  await actions.getDashboardData();
+  await actions.updateTask(
+    'US-001',
+    { title: 'manual title', summary: 'manual summary' },
+    { source: 'web' },
+  );
+
+  const dashboard = await actions.getDashboardData();
+  const task = dashboard.taskBoard.find((item) => item.id === 'US-001');
+
+  assert.equal(task?.title, 'manual title');
+  assert.equal(task?.summary, 'manual summary');
+  assert.equal(task?.titleOverride, 'manual title');
+  assert.equal(task?.summaryOverride, 'manual summary');
+
+  rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('RunActions previews and imports tasks from pasted specs in order', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'ralph-loop-'));
+  mkdirSync(join(rootDir, 'prompts'), { recursive: true });
+  writeFileSync(join(rootDir, 'prompts', 'supervisor.md'), 'base prompt', { encoding: 'utf8' });
+
+  const config = makeConfig(rootDir);
+  config.taskCatalogFile = '';
+  const store = new FileStateStore(config);
+  await store.ensureInitialized();
+  const actions = new RunActions(store, config);
+
+  const spec = `
+## API
+- 認証APIを作る
+  - パスワード認証が通る
+- 監査ログを残す
+  - 成功と失敗を記録する
+`;
+
+  const preview = await actions.previewTaskImport(spec);
+  assert.equal(preview.format, 'list');
+  assert.equal(preview.tasks.length, 2);
+  assert.equal(preview.tasks[0]?.title, '認証APIを作る');
+
+  const imported = await actions.importTasksFromSpec(spec, { source: 'web' });
+  assert.equal(imported.tasks.length, 2);
+  assert.equal(imported.tasks[0]?.id, 'T-001');
+  assert.equal(imported.tasks[1]?.id, 'T-002');
+  assert.deepEqual(imported.tasks[0]?.acceptanceCriteria, ['パスワード認証が通る']);
+
+  const dashboard = await actions.getDashboardData();
+  assert.equal(dashboard.currentTask?.id, 'T-001');
+  assert.equal(dashboard.nextTask?.id, 'T-002');
+  assert.equal(dashboard.taskBoard[1]?.summary, 'API');
 
   rmSync(rootDir, { recursive: true, force: true });
 });

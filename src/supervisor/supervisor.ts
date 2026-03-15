@@ -43,6 +43,10 @@ export class Supervisor {
     }
   }
 
+  stopWatching(): void {
+    this.isWatching = false;
+  }
+
   async start(): Promise<void> {
     if (this.isRunning) {
       return;

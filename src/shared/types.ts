@@ -99,6 +99,8 @@ export interface TaskRecord {
   source: string;
   acceptanceCriteria: string[];
   notes?: string;
+  titleOverride?: string;
+  summaryOverride?: string;
 }
 
 export interface EventRecord {
@@ -161,6 +163,9 @@ export interface RuntimeSettings {
 export interface DashboardData {
   status: RunStatus;
   settings: RuntimeSettings;
+  capabilities: {
+    canEditAgentCommand: boolean;
+  };
   currentTask?: TaskBoardItem;
   nextTask?: TaskBoardItem;
   pendingQuestions: QuestionRecord[];

@@ -15,3 +15,12 @@ export function createRunId(date: Date = new Date()): string {
   const timestamp = date.toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
   return `RUN-${timestamp}`;
 }
+
+export function createEventId(date: Date = new Date()): string {
+  const timestamp = date
+    .toISOString()
+    .replace(/[-:.TZ]/g, '')
+    .slice(0, 17);
+  const entropy = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `E-${timestamp}-${entropy}`;
+}

@@ -1,0 +1,51 @@
+<svg width="1600" height="960" viewBox="0 0 1600 960" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="960" fill="#111516"/>
+  <rect x="48" y="44" width="1504" height="872" rx="28" fill="#171C1E" stroke="#F3EDE3" stroke-opacity="0.08"/>
+
+  <rect x="88" y="84" width="1424" height="156" rx="24" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="124" y="128" fill="#F3EDE3" font-size="36" font-family="Helvetica, Arial, sans-serif" font-weight="700">RalphLoop Panel Overview</text>
+  <text x="124" y="166" fill="#98A3A5" font-size="20" font-family="Helvetica, Arial, sans-serif">See the next action, compare current vs next task, then send one clear instruction.</text>
+  <rect x="1168" y="112" width="144" height="40" rx="20" fill="#C96F41"/>
+  <text x="1213" y="138" fill="#FFF6F0" font-size="18" font-family="Helvetica, Arial, sans-serif" font-weight="700">Start</text>
+  <rect x="1328" y="112" width="144" height="40" rx="20" fill="#4F9B8C" fill-opacity="0.16" stroke="#4F9B8C"/>
+  <text x="1371" y="138" fill="#D5FBF7" font-size="18" font-family="Helvetica, Arial, sans-serif" font-weight="700">Pause</text>
+
+  <rect x="88" y="268" width="832" height="240" rx="22" fill="#161B1D" stroke="#C96F41" stroke-opacity="0.28"/>
+  <text x="124" y="314" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Focus</text>
+  <text x="124" y="352" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">The screen starts with one primary card that tells the operator what to do now.</text>
+  <rect x="124" y="386" width="760" height="42" rx="12" fill="#FFFFFF" fill-opacity="0.04"/>
+  <text x="148" y="413" fill="#F3EDE3" font-size="18" font-family="Helvetica, Arial, sans-serif">Current task exists and settings are ready</text>
+  <rect x="124" y="440" width="760" height="42" rx="12" fill="#FFFFFF" fill-opacity="0.04"/>
+  <text x="148" y="467" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">Human input, blockers, and queue are summarized before action</text>
+
+  <rect x="944" y="268" width="568" height="240" rx="22" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="980" y="314" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Task Flow</text>
+  <rect x="980" y="346" width="496" height="64" rx="14" fill="#C96F41" fill-opacity="0.12" stroke="#C96F41" stroke-opacity="0.28"/>
+  <text x="1006" y="374" fill="#F3EDE3" font-size="18" font-family="Helvetica, Arial, sans-serif">Current: polish quick composer and dashboard states</text>
+  <text x="1006" y="398" fill="#98A3A5" font-size="15" font-family="Helvetica, Arial, sans-serif">What is in progress right now</text>
+  <rect x="980" y="424" width="496" height="64" rx="14" fill="#4F9B8C" fill-opacity="0.12" stroke="#4F9B8C" stroke-opacity="0.28"/>
+  <text x="1006" y="452" fill="#F3EDE3" font-size="18" font-family="Helvetica, Arial, sans-serif">Next: verify docs and release workflow</text>
+  <text x="1006" y="476" fill="#98A3A5" font-size="15" font-family="Helvetica, Arial, sans-serif">What gets handed off after this run</text>
+
+  <rect x="88" y="532" width="1424" height="158" rx="22" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="124" y="578" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Quick Send</text>
+  <text x="124" y="616" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">One input surface for note, task, and answer. No hunting for different forms.</text>
+  <rect x="124" y="638" width="968" height="28" rx="14" fill="#FFFFFF" fill-opacity="0.04"/>
+  <rect x="1112" y="626" width="164" height="52" rx="16" fill="#C96F41"/>
+  <text x="1163" y="659" fill="#FFF6F0" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Send</text>
+  <rect x="1292" y="626" width="164" height="52" rx="16" fill="#FFFFFF" fill-opacity="0.04" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="1336" y="659" fill="#F3EDE3" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Clear</text>
+
+  <rect x="88" y="714" width="692" height="162" rx="22" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="124" y="760" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Task Workspace</text>
+  <text x="124" y="798" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">Create, edit, complete, and reopen tasks without leaving the main screen.</text>
+  <rect x="124" y="822" width="620" height="22" rx="11" fill="#FFFFFF" fill-opacity="0.04"/>
+
+  <rect x="804" y="714" width="342" height="162" rx="22" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="840" y="760" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Human Loop</text>
+  <text x="840" y="798" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">Pending questions and answer history stay visible but secondary.</text>
+
+  <rect x="1170" y="714" width="342" height="162" rx="22" fill="#1B2124" stroke="#F3EDE3" stroke-opacity="0.08"/>
+  <text x="1206" y="760" fill="#F3EDE3" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">Signals</text>
+  <text x="1206" y="798" fill="#98A3A5" font-size="18" font-family="Helvetica, Arial, sans-serif">Blockers, pending injections, and recent events are grouped by urgency.</text>
+</svg>

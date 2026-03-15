@@ -1,12 +1,32 @@
 {
   "name": "ralph-loop",
-  "version": "0.2.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Temporary supervisor-based RalphLoop for Codex",
+  "description": "Task-first orchestration loop for Codex with a web panel, supervisor, and Discord bridge",
+  "license": "MIT",
   "bin": {
     "ralph": "./ralph"
   },
+  "files": [
+    "src",
+    "scripts",
+    "prompts",
+    "dist",
+    "docs",
+    "ralph",
+    "README.md",
+    "README.en.md",
+    "README.ja.md",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSE",
+    ".env.example"
+  ],
   "scripts": {
     "dev": "node --experimental-strip-types src/cli/ralph.ts start",
     "app:start": "node --experimental-strip-types src/cli/ralph.ts start",
@@ -18,6 +38,8 @@
     "discord:start": "node --experimental-strip-types src/cli/ralph.ts discord",
     "demo": "node --experimental-strip-types src/cli/ralph.ts demo",
     "status": "node --experimental-strip-types src/cli/ralph.ts status",
+    "check": "node --experimental-strip-types src/cli/ralph.ts check",
+    "smoke": "node --experimental-strip-types scripts/demo-smoke.ts",
     "build": "node scripts/build.mjs",
     "lint": "node scripts/lint.mjs",
     "test": "node --experimental-strip-types --test --test-isolation=none"

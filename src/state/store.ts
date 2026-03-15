@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { readFile, appendFile } from 'node:fs/promises';
@@ -180,7 +181,16 @@ export class FileStateStore {
     const lines = content.split('\n').filter(Boolean);
     const recent = lines.slice(-count);
 
-    return recent.map((line) => JSON.parse(line) as EventRecord);
+    return recent.flatMap((line) => {
+      try {
+        return [JSON.parse(line) as EventRecord];
+      } catch (error) {
+        console.warn(
+          `state: events.jsonl の行をスキップしました: ${this.eventsPath} / ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return [];
+      }
+    });
   }
 
   async appendEvent(event: EventRecord): Promise<void> {
@@ -240,11 +250,26 @@ export class FileStateStore {
       return null;
     }
 
-    return JSON.parse(content) as T;
+    try {
+      return JSON.parse(content) as T;
+    } catch (error) {
+      const backupPath = `${filePath}.corrupt-${Date.now()}`;
+      try {
+        renameSync(filePath, backupPath);
+      } catch {
+        // Keep returning a safe fallback even if the corrupt file could not be moved.
+      }
+      console.warn(
+        `state: JSON が壊れていたため退避しました: ${filePath} -> ${backupPath} / ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
   }
 
   private writeJson(filePath: string, data: unknown): void {
-    writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tempPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    renameSync(tempPath, filePath);
   }
 
   private writeJsonIfMissing(filePath: string, data: unknown): void {

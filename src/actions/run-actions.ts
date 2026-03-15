@@ -4,7 +4,7 @@ import { buildOrchestrationSnapshot } from '../orchestration/model.ts';
 import type { AppConfig } from '../config.ts';
 import { parseStructuredMarkers } from '../parser/markers.ts';
 import { composePromptWithInjections } from '../prompt/composer.ts';
-import { createRunId, nextSequentialId } from '../shared/id.ts';
+import { createEventId, createRunId, nextSequentialId } from '../shared/id.ts';
 import { nowIso } from '../shared/time.ts';
 import type {
   AnswerRecord,
@@ -21,7 +21,8 @@ import type {
   TaskRecord,
 } from '../shared/types.ts';
 import { FileStateStore } from '../state/store.ts';
-import { loadTaskSeeds, makeSyntheticTask } from '../tasks/catalog.ts';
+import { loadTaskSeeds } from '../tasks/catalog.ts';
+import { parseTasksFromSpecText, type TaskImportPreview } from '../tasks/importer.ts';
 
 export interface ActionActor {
   source: string;
@@ -40,12 +41,30 @@ export interface RuntimeSettingsInput {
 export interface TaskDraftInput {
   title?: string;
   summary?: string;
+  acceptanceCriteria?: string[];
 }
 
 interface ParsedTaskMarker {
   id: string;
   title: string;
   status: StoredTaskStatus;
+}
+
+function orderTasks(tasks: TaskRecord[]): TaskRecord[] {
+  return [...tasks].sort((left, right) => {
+    const orderDelta = left.sortIndex - right.sortIndex;
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function resequenceTasks(tasks: TaskRecord[]): void {
+  tasks.forEach((task, index) => {
+    task.sortIndex = index + 1;
+  });
 }
 
 function normalizeTaskStatus(value?: string): StoredTaskStatus {
@@ -173,6 +192,9 @@ export class RunActions {
     return {
       status,
       settings,
+      capabilities: {
+        canEditAgentCommand: this.canOverrideAgentCommand({ source: 'web' }),
+      },
       currentTask,
       nextTask,
       pendingQuestions,
@@ -202,9 +224,17 @@ export class RunActions {
     actor: ActionActor,
   ): Promise<RuntimeSettings> {
     const current = this.store.readSettings();
+    const currentAgentCommand = current.agentCommand.trim();
     const nextTaskName = input.taskName?.trim();
     const nextAgentCommand = input.agentCommand?.trim();
     const nextPromptFile = input.promptFile?.trim();
+    const wantsAgentCommandChange =
+      nextAgentCommand !== undefined && nextAgentCommand !== currentAgentCommand;
+
+    if (wantsAgentCommandChange && !this.canOverrideAgentCommand(actor)) {
+      throw new Error('agentCommand は起動時設定に固定されています。CLI または環境変数で変更してください');
+    }
+
     const next: RuntimeSettings = {
       ...current,
       taskName: nextTaskName ? nextTaskName : current.taskName,
@@ -243,34 +273,8 @@ export class RunActions {
   }
 
   async createTask(input: TaskDraftInput, actor: ActionActor): Promise<TaskRecord> {
-    const title = input.title?.trim();
-    if (!title) {
-      throw new Error('Task 名を入力してください');
-    }
-
     const tasks = this.synchronizeTaskCatalog();
-    const nextIndex = tasks.reduce((max, task) => Math.max(max, task.sortIndex), 0) + 1;
-    const timestamp = nowIso();
-    const taskId = nextSequentialId(
-      'T',
-      tasks
-        .map((task) => task.id)
-        .filter((id) => /^T-\d+$/.test(id)),
-    );
-
-    const record: TaskRecord = {
-      id: taskId,
-      title,
-      summary: input.summary?.trim() || title,
-      priority: 'high',
-      sortIndex: nextIndex,
-      status: 'pending',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      source: actor.source,
-      acceptanceCriteria: [],
-    };
-
+    const record = this.buildTaskRecord(tasks, input, actor);
     tasks.push(record);
     this.store.writeTasks(tasks);
     await this.appendEvent('task.created', 'info', `${record.id}: ${record.title}`, {
@@ -279,6 +283,50 @@ export class RunActions {
     });
     this.refreshStatusCounters();
     return record;
+  }
+
+  async previewTaskImport(specText: string): Promise<TaskImportPreview> {
+    return parseTasksFromSpecText(specText);
+  }
+
+  async importTasksFromSpec(
+    specText: string,
+    actor: ActionActor,
+  ): Promise<{ preview: TaskImportPreview; tasks: TaskRecord[] }> {
+    const preview = parseTasksFromSpecText(specText);
+    if (preview.tasks.length === 0) {
+      throw new Error('Task に分解できる項目が見つかりませんでした');
+    }
+
+    const tasks = this.synchronizeTaskCatalog();
+    const created = preview.tasks.map((draft) => {
+      const record = this.buildTaskRecord(tasks, draft, actor);
+      tasks.push(record);
+      return record;
+    });
+
+    this.store.writeTasks(tasks);
+
+    const status = this.store.readStatus();
+    status.currentStatusText = `${created.length} 件のTaskを仕様書から追加しました`;
+    status.thinkingText = status.currentStatusText;
+    status.updatedAt = nowIso();
+    this.store.writeStatus(status);
+
+    await this.appendEvent(
+      'task.imported',
+      'info',
+      `${created.length} 件のTaskを仕様書から追加しました`,
+      {
+        source: actor.source,
+        count: created.length,
+        format: preview.format,
+        truncated: preview.truncated,
+      },
+    );
+
+    this.refreshStatusCounters();
+    return { preview, tasks: created };
   }
 
   async updateTask(
@@ -294,11 +342,15 @@ export class RunActions {
 
     const nextTitle = input.title?.trim();
     const nextSummary = input.summary?.trim();
+    const seed = loadTaskSeeds(this.config).find((item) => item.id === taskId);
     if (nextTitle) {
       task.title = nextTitle;
+      task.titleOverride = seed ? (nextTitle === seed.title ? undefined : nextTitle) : undefined;
     }
     if (nextSummary !== undefined) {
-      task.summary = nextSummary || task.title;
+      const summary = nextSummary || task.title;
+      task.summary = summary;
+      task.summaryOverride = seed ? (summary === seed.summary ? undefined : summary) : undefined;
     }
     task.updatedAt = nowIso();
     task.source = actor.source;
@@ -365,6 +417,40 @@ export class RunActions {
       source: actor.source,
       taskId: task.id,
     });
+    this.refreshStatusCounters();
+    return task;
+  }
+
+  async moveTask(taskId: string, position: 'front' | 'back', actor: ActionActor): Promise<TaskRecord | null> {
+    const tasks = this.synchronizeTaskCatalog();
+    const ordered = orderTasks(tasks);
+    const taskIndex = ordered.findIndex((item) => item.id === taskId);
+    if (taskIndex === -1) {
+      return null;
+    }
+
+    const [task] = ordered.splice(taskIndex, 1);
+    ordered.splice(position === 'front' ? 0 : ordered.length, 0, task);
+    resequenceTasks(ordered);
+    task.updatedAt = nowIso();
+    task.source = actor.source;
+    this.store.writeTasks(ordered);
+
+    const directionLabel = position === 'front' ? '最優先へ移動しました' : '後ろへ回しました';
+    await this.appendEvent('task.reordered', 'info', `${task.id}: ${directionLabel}`, {
+      source: actor.source,
+      taskId: task.id,
+      position,
+    });
+
+    const status = this.store.readStatus();
+    status.currentStatusText =
+      position === 'front'
+        ? `${task.id} を最優先にしました`
+        : `${task.id} を後ろへ回しました`;
+    status.thinkingText = status.currentStatusText;
+    status.updatedAt = nowIso();
+    this.store.writeStatus(status);
     this.refreshStatusCounters();
     return task;
   }
@@ -960,13 +1046,7 @@ export class RunActions {
     const seeds = loadTaskSeeds(this.config);
 
     if (seeds.length === 0) {
-      if (existingTasks.length > 0) {
-        return existingTasks;
-      }
-
-      const synthetic = makeSyntheticTask(this.store.readStatus().task || this.config.taskName, timestamp);
-      this.store.writeTasks([synthetic]);
-      return [synthetic];
+      return existingTasks;
     }
 
     const existingById = new Map(existingTasks.map((task) => [task.id, task]));
@@ -982,26 +1062,31 @@ export class RunActions {
             : existing?.status === 'blocked'
             ? 'blocked'
             : 'pending';
+      const nextTitle = existing?.titleOverride ?? seed.title;
+      const nextSummary = existing?.summaryOverride ?? seed.summary;
+      const nextNotes = existing?.notes ?? seed.notes;
 
       return {
         id: seed.id,
-        title: seed.title,
-        summary: seed.summary,
+        title: nextTitle,
+        summary: nextSummary,
         priority: seed.priority,
         sortIndex: existing?.sortIndex ?? seed.sortIndex,
         status: nextStatus,
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt:
           existing &&
-          existing.title === seed.title &&
-          existing.summary === seed.summary &&
-          existing.notes === seed.notes &&
+          existing.title === nextTitle &&
+          existing.summary === nextSummary &&
+          existing.notes === nextNotes &&
           existing.status === nextStatus
             ? existing.updatedAt
             : timestamp,
-        source: seed.source,
+        source: existing?.source ?? seed.source,
         acceptanceCriteria: seed.acceptanceCriteria,
-        notes: seed.notes ?? existing?.notes,
+        notes: nextNotes,
+        titleOverride: existing?.titleOverride,
+        summaryOverride: existing?.summaryOverride,
         completedAt: nextStatus === 'completed' ? existing?.completedAt ?? timestamp : undefined,
       };
     });
@@ -1012,6 +1097,35 @@ export class RunActions {
     return catalog;
   }
 
+  private buildTaskRecord(tasks: TaskRecord[], input: TaskDraftInput, actor: ActionActor): TaskRecord {
+    const title = input.title?.trim();
+    if (!title) {
+      throw new Error('Task 名を入力してください');
+    }
+
+    const nextIndex = tasks.reduce((max, task) => Math.max(max, task.sortIndex), 0) + 1;
+    const timestamp = nowIso();
+    const taskId = nextSequentialId(
+      'T',
+      tasks
+        .map((task) => task.id)
+        .filter((id) => /^T-\d+$/.test(id)),
+    );
+
+    return {
+      id: taskId,
+      title,
+      summary: input.summary?.trim() || title,
+      priority: 'high',
+      sortIndex: nextIndex,
+      status: 'pending',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      source: actor.source,
+      acceptanceCriteria: (input.acceptanceCriteria ?? []).map((item) => item.trim()).filter(Boolean),
+    };
+  }
+
   private applyRuntimeSettings(settings: RuntimeSettings): void {
     this.config.taskName = settings.taskName;
     this.config.agentCommand = settings.agentCommand;
@@ -1019,6 +1133,10 @@ export class RunActions {
     this.config.maxIterations = settings.maxIterations;
     this.config.idleSeconds = settings.idleSeconds;
     this.config.mode = settings.mode;
+  }
+
+  private canOverrideAgentCommand(actor: ActionActor): boolean {
+    return this.config.allowRuntimeAgentCommandOverride || !['web', 'discord'].includes(actor.source);
   }
 
   private validateRuntimeSettings(settings: RuntimeSettings): string | null {
@@ -1102,14 +1220,8 @@ export class RunActions {
     message: string,
     data?: Record<string, unknown>,
   ): Promise<void> {
-    const recentEvents = await this.store.listRecentEvents(500);
-    const eventId = nextSequentialId(
-      'E',
-      recentEvents.map((event) => event.id),
-    );
-
     await this.store.appendEvent({
-      id: eventId,
+      id: createEventId(),
       timestamp: nowIso(),
       type,
       message,

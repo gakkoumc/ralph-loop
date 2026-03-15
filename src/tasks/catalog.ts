@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 
 import type { AppConfig } from '../config.ts';
-import type { StoredTaskStatus, TaskPriority, TaskRecord } from '../shared/types.ts';
+import type { StoredTaskStatus, TaskPriority } from '../shared/types.ts';
 
 interface PrdStory {
   id?: string;
@@ -63,6 +63,10 @@ function toTaskSeed(story: PrdStory, index: number): TaskSeed | null {
 }
 
 export function loadTaskSeeds(config: AppConfig): TaskSeed[] {
+  if (!config.taskCatalogFile.trim()) {
+    return [];
+  }
+
   if (!existsSync(config.taskCatalogFile)) {
     return [];
   }
@@ -75,19 +79,4 @@ export function loadTaskSeeds(config: AppConfig): TaskSeed[] {
   } catch {
     return [];
   }
-}
-
-export function makeSyntheticTask(taskName: string, timestamp: string): TaskRecord {
-  return {
-    id: 'TASK-001',
-    title: taskName || 'Ralph root task',
-    summary: taskName || 'Ralph root task',
-    priority: 'high',
-    sortIndex: 1,
-    status: 'pending',
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    source: 'runtime',
-    acceptanceCriteria: [],
-  };
 }

@@ -1,5 +1,5 @@
 import { bootstrapSystem } from './bootstrap.ts';
-import { loadConfig, type AppConfig } from '../config.ts';
+import { assessConfig, loadConfig, type AppConfig } from '../config.ts';
 import { FileStateStore } from '../state/store.ts';
 import { RunActions } from '../actions/run-actions.ts';
 
@@ -13,6 +13,7 @@ type RalphCommand =
   | 'discord'
   | 'demo'
   | 'status'
+  | 'check'
   | 'help';
 
 interface ParsedArgs {
@@ -40,11 +41,12 @@ function renderHelp(): string {
     '  ralph discord            Discord 連携だけ起動',
     '  ralph demo [task]        デモモードで起動してすぐ実行',
     '  ralph status             現在の状態を表示',
+    '  ralph check              起動前の設定と依存を診断',
     '  ralph help               このヘルプを表示',
     '',
     '日本語エイリアス:',
     '  起動=start  実行=run  実行予約=start-run  設定=configure  画面=panel',
-    '  監督=supervisor  ディスコード=discord  デモ=demo  状態=status  ヘルプ=help',
+    '  監督=supervisor  ディスコード=discord  デモ=demo  状態=status  診断=check  ヘルプ=help',
     '',
     'オプション:',
     '  --task <text>            実行する Task 名を上書き',
@@ -92,6 +94,9 @@ function resolveCommand(value?: string): RalphCommand | null {
     デモ: 'demo',
     status: 'status',
     状態: 'status',
+    check: 'check',
+    doctor: 'check',
+    診断: 'check',
     help: 'help',
     ヘルプ: 'help',
   };
@@ -203,6 +208,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     discord: { startPanel: false, startSupervisor: false, startDiscord: true, autoStartRun: false },
     demo: { startPanel: true, startSupervisor: true, startDiscord: false, autoStartRun: true },
     status: { startPanel: false, startSupervisor: false, startDiscord: false, autoStartRun: false },
+    check: { startPanel: false, startSupervisor: false, startDiscord: false, autoStartRun: false },
     help: { startPanel: false, startSupervisor: false, startDiscord: false, autoStartRun: false },
   };
 
@@ -284,6 +290,35 @@ async function configureRuntime(config: AppConfig, overrides: Partial<AppConfig>
   );
 }
 
+async function printCheck(config: AppConfig, json: boolean): Promise<void> {
+  const assessment = assessConfig(config);
+
+  if (json) {
+    console.log(JSON.stringify(assessment, null, 2));
+    if (!assessment.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const levelLabel: Record<string, string> = {
+    ok: 'OK',
+    warning: 'WARN',
+    error: 'ERROR',
+  };
+
+  console.log([
+    `診断結果: ${assessment.ok ? '起動可能' : '要修正'}`,
+    `OK ${assessment.summary.ok} / WARN ${assessment.summary.warning} / ERROR ${assessment.summary.error}`,
+    '',
+    ...assessment.items.map((item) => `[${levelLabel[item.level]}] ${item.key}: ${item.message}`),
+  ].join('\n'));
+
+  if (!assessment.ok) {
+    process.exitCode = 1;
+  }
+}
+
 async function queueRun(config: AppConfig, overrides: Partial<AppConfig>): Promise<void> {
   const store = new FileStateStore(config);
   await store.ensureInitialized();
@@ -327,6 +362,11 @@ async function main() {
 
   if (parsed.command === 'status') {
     await printStatus(config, parsed.json);
+    return;
+  }
+
+  if (parsed.command === 'check') {
+    await printCheck(config, parsed.json);
     return;
   }
 

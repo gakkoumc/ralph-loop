@@ -36,9 +36,10 @@ export async function bootstrapSystem(options: BootstrapOptions) {
   const notifier =
     notifiers.length === 0 ? new NoopNotifier() : new CompositeNotifier(notifiers);
   supervisor = new Supervisor(config, actions, notifier);
+  let panelServer = null;
 
   if (options.startPanel) {
-    startPanelServer(config, actions, hooks);
+    panelServer = startPanelServer(config, actions, hooks);
   }
 
   if (discordBridge) {
@@ -54,5 +55,5 @@ export async function bootstrapSystem(options: BootstrapOptions) {
     console.log(`[run.request] ${result.message}`);
   }
 
-  return { config, store, actions, supervisor, discordBridge };
+  return { config, store, actions, supervisor, discordBridge, panelServer };
 }

@@ -1,0 +1,25 @@
+name: Feature request
+description: 機能要望
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: どの運用上の痛みを解消したいか
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: 望む挙動
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: panel / Discord / supervisor のどこに効く変更か

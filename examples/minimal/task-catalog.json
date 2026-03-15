@@ -1,0 +1,24 @@
+{
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "panel の初回導線を確認する",
+      "priority": 1,
+      "passes": false,
+      "acceptanceCriteria": [
+        "空の Task board から始められる",
+        "現在の Task と次の Task が panel に見える"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "質問への回答注入を確認する",
+      "priority": 2,
+      "passes": false,
+      "acceptanceCriteria": [
+        "QUESTION を pending で保持する",
+        "回答が次ターン prompt に一度だけ入る"
+      ]
+    }
+  ]
+}
